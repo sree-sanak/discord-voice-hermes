@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { config as dotenvConfig } from 'dotenv';
-import { Client, GatewayIntentBits, Partials } from 'discord.js';
+import { ChannelType, Client, GatewayIntentBits, Partials } from 'discord.js';
 import {
   AudioPlayerStatus,
   EndBehaviorType,
@@ -25,6 +25,12 @@ import {
   rememberTextMessage,
   selectRelevantTextContext,
 } from './context.js';
+import {
+  DEFAULT_VOICE_CHANNEL_NAME,
+  buildVoiceCommands,
+  categoryVoiceDefaultsPlan,
+  chooseVoiceChannelForHandoff,
+} from './handoff.js';
 
 // Load a local .env first, then the main Hermes env file when run alongside Hermes.
 const hermesHome = process.env.HERMES_HOME || path.join(os.homedir(), '.hermes');
@@ -58,6 +64,7 @@ const AUTO_TEXT_CONTEXT = !['0', 'false', 'no'].includes(String(process.env.VOIC
 const TEXT_CONTEXT_MAX_MESSAGES = Number(process.env.VOICE_TEXT_CONTEXT_MAX_MESSAGES || 24);
 const TEXT_CONTEXT_FETCH_LIMIT = Number(process.env.VOICE_TEXT_CONTEXT_FETCH_LIMIT || 80);
 const TEXT_CONTEXT_MAX_AGE_MS = Number(process.env.VOICE_TEXT_CONTEXT_MAX_AGE_MS || 6 * 60 * 60 * 1000);
+const DEFAULT_VOICE_CHANNEL = process.env.VOICE_DEFAULT_CHANNEL_NAME || DEFAULT_VOICE_CHANNEL_NAME;
 
 if (!DISCORD_TOKEN) throw new Error('Missing DISCORD_BOT_TOKEN or DISCORD_VOICE_BOT_TOKEN');
 if (!OPENAI_KEY) throw new Error('Missing OPENAI_API_KEY or VOICE_TOOLS_OPENAI_KEY');
@@ -168,6 +175,47 @@ async function fetchRecentTextContext(guild, voiceChannel, userId) {
 async function refreshTextContextForVoice(state, guild, voiceChannel, userId) {
   state.textContext = await fetchRecentTextContext(guild, voiceChannel, userId);
   return state.textContext;
+}
+
+async function setExplicitTextContextFromChannel(state, channel) {
+  if (!canReadTextChannel(channel)) return null;
+  const messages = await channel.messages.fetch({ limit: TEXT_CONTEXT_FETCH_LIMIT });
+  for (const message of messages.values()) rememberDiscordMessage(message);
+  const selected = textContextCache.messages
+    .filter((message) => message.guildId === channel.guild?.id)
+    .filter((message) => message.channelId === channel.id)
+    .filter((message) => Date.now() - message.createdTimestamp <= TEXT_CONTEXT_MAX_AGE_MS)
+    .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+    .slice(-TEXT_CONTEXT_MAX_MESSAGES);
+  state.textContext = selected.length ? {
+    sourceLabel: `#${channel.name}`,
+    messages: selected,
+  } : null;
+  return state.textContext;
+}
+
+async function createDefaultVoiceChannel(guild, parentId) {
+  return guild.channels.create({
+    name: DEFAULT_VOICE_CHANNEL,
+    type: ChannelType.GuildVoice,
+    parent: parentId,
+    reason: 'Discord Voice Hermes default category voice channel',
+  });
+}
+
+async function resolveHandoffVoiceChannel(guild, textChannel, member) {
+  const decision = chooseVoiceChannelForHandoff({
+    channels: guild.channels.cache,
+    textChannel,
+    memberVoiceChannelId: member?.voice?.channelId,
+    defaultVoiceChannelName: DEFAULT_VOICE_CHANNEL,
+  });
+  if (decision.action === 'join') return { channel: decision.channel, created: false, reason: decision.reason };
+  if (decision.action === 'create') {
+    const channel = await createDefaultVoiceChannel(guild, decision.parentId);
+    return { channel, created: true, reason: decision.reason };
+  }
+  throw new Error('No voice channel found, and this text channel is not inside a category where I can create one.');
 }
 
 function pcmDurationMs(bytes, sampleRate = 48000, channels = 2, bytesPerSample = 2) {
@@ -437,6 +485,62 @@ async function status(message) {
   ].join('\n'));
 }
 
+async function handoff({ guild, textChannel, member, userId }) {
+  if (!isAllowed(userId)) throw new Error('You are not in the voice allowlist.');
+  const state = getSession(guild.id);
+  state.textChannel = textChannel;
+
+  const { channel: voiceChannel, created } = await resolveHandoffVoiceChannel(guild, textChannel, member);
+  await connectToVoiceChannel(state, guild, voiceChannel);
+  const context = await setExplicitTextContextFromChannel(state, textChannel).catch((err) => {
+    console.warn('[explicit text context fetch]', err.message);
+    return null;
+  });
+  const createdNote = created ? ` Created **${voiceChannel.name}** first.` : '';
+  const contextNote = context ? ` Locked context/transcripts to #${textChannel.name}.` : ` I will mirror transcripts in #${textChannel.name}.`;
+  return `Joined **${voiceChannel.name}** from #${textChannel.name}.${createdNote}${contextNote}`;
+}
+
+async function ensureVoiceDefaults(guild) {
+  const plan = categoryVoiceDefaultsPlan({
+    channels: guild.channels.cache,
+    defaultVoiceChannelName: DEFAULT_VOICE_CHANNEL,
+  });
+  const created = [];
+  for (const item of plan) {
+    const channel = await createDefaultVoiceChannel(guild, item.parentId);
+    created.push(channel);
+  }
+  return created;
+}
+
+async function handleInteraction(interaction) {
+  if (!interaction.isChatInputCommand() || !interaction.guild) return;
+  if (!['voice-handoff', 'voice-defaults'].includes(interaction.commandName)) return;
+  await interaction.deferReply();
+  try {
+    if (interaction.commandName === 'voice-handoff') {
+      const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => interaction.member);
+      const result = await handoff({
+        guild: interaction.guild,
+        textChannel: interaction.channel,
+        member,
+        userId: interaction.user.id,
+      });
+      return interaction.editReply(result);
+    }
+    if (!isAllowed(interaction.user.id)) throw new Error('You are not in the voice allowlist.');
+    const created = await ensureVoiceDefaults(interaction.guild);
+    const note = created.length
+      ? `Created ${created.length} default voice channel(s): ${created.map((channel) => `**${channel.name}**`).join(', ')}`
+      : 'Every category already has at least one voice channel.';
+    return interaction.editReply(note);
+  } catch (err) {
+    console.error('[interaction]', err);
+    return interaction.editReply(`Voice command failed: ${err.message}`);
+  }
+}
+
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
   rememberDiscordMessage(message);
@@ -444,14 +548,22 @@ client.on('messageCreate', async (message) => {
   const arg = message.content.slice(PREFIX.length).trim().toLowerCase();
   try {
     if (arg === 'join') return await join(message);
+    if (arg === 'handoff' || arg === 'here') return message.reply(await handoff({
+      guild: message.guild,
+      textChannel: message.channel,
+      member: message.member,
+      userId: message.author.id,
+    }));
     if (arg === 'leave') return await leave(message);
     if (arg === 'status' || arg === '') return await status(message);
-    return message.reply(`Commands: \`${PREFIX} join\`, \`${PREFIX} leave\`, \`${PREFIX} status\``);
+    return message.reply(`Commands: \`${PREFIX} join\`, \`${PREFIX} handoff\`, \`${PREFIX} leave\`, \`${PREFIX} status\``);
   } catch (err) {
     console.error('[command]', err);
     return message.reply(`Voice command failed: ${err.message}`);
   }
 });
+
+client.on('interactionCreate', handleInteraction);
 
 client.on('voiceStateUpdate', async (oldState, newState) => {
   if (!AUTO_FOLLOW || newState.member?.user?.bot) return;
@@ -489,9 +601,11 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
   }
 });
 
-client.once('clientReady', () => {
+client.once('clientReady', async () => {
   console.log(`Discord Voice Hermes ready as ${client.user.tag}`);
   console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'none'}; responseBackend=${RESPONSE_BACKEND}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}`);
+  await Promise.allSettled(client.guilds.cache.map((guild) => guild.commands.set(buildVoiceCommands())));
+  console.log(`Registered slash commands: ${buildVoiceCommands().map((command) => `/${command.name}`).join(', ')}`);
 });
 
 process.on('SIGINT', () => client.destroy().finally(() => process.exit(0)));

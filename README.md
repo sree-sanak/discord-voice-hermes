@@ -48,6 +48,15 @@ Invite your Discord bot to a server with permission to read/send messages and co
 !voice join
 ```
 
+Or use `/voice-handoff` from a text channel to join or create a voice channel in that category and lock that text channel as the transcript/context room.
+
+Slash commands:
+
+| Command | Purpose |
+| --- | --- |
+| `/voice-handoff` | Use the current text channel as explicit context/transcript and join the best voice channel for that category. If none exists, create `Voice Chat`. |
+| `/voice-defaults` | Create one default `Voice Chat` channel in every category that does not already have a voice channel. Requires the bot to have `Manage Channels`. |
+
 ## Configuration
 
 Required environment variables:
@@ -71,6 +80,7 @@ Useful optional variables:
 | `VOICE_HERMES_MODEL` | `gpt-5.5` | Hermes model override |
 | `VOICE_AUTO_FOLLOW` | `true` | Auto-join allowed users' voice channels |
 | `VOICE_AUTO_TEXT_CONTEXT` | `true` | Auto-sync recent readable Discord text context when joining voice |
+| `VOICE_DEFAULT_CHANNEL_NAME` | `Voice Chat` | Name used when creating default category voice channels |
 | `VOICE_TEXT_CONTEXT_FETCH_LIMIT` | `80` | Messages to fetch per candidate text channel |
 | `VOICE_TEXT_CONTEXT_MAX_MESSAGES` | `24` | Messages injected into the voice prompt |
 | `VOICE_TEXT_CONTEXT_MAX_AGE_MS` | `21600000` | Max context age, default 6 hours |
