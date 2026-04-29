@@ -19,6 +19,12 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { pipeline } from 'node:stream/promises';
+import {
+  createContextCache,
+  formatTextContextForPrompt,
+  rememberTextMessage,
+  selectRelevantTextContext,
+} from './context.js';
 
 // Load a local .env first, then the main Hermes env file when run alongside Hermes.
 const hermesHome = process.env.HERMES_HOME || path.join(os.homedir(), '.hermes');
@@ -48,6 +54,10 @@ const CODEX_MODEL = process.env.VOICE_CODEX_MODEL || 'gpt-5.1-codex-mini';
 const MAX_CODEX_MS = Number(process.env.VOICE_CODEX_TIMEOUT_MS || 60000);
 const AUTO_FOLLOW = !['0', 'false', 'no'].includes(String(process.env.VOICE_AUTO_FOLLOW || 'true').toLowerCase());
 const IGNORE_AFTER_PLAYBACK_MS = Number(process.env.VOICE_IGNORE_AFTER_PLAYBACK_MS || 1200);
+const AUTO_TEXT_CONTEXT = !['0', 'false', 'no'].includes(String(process.env.VOICE_AUTO_TEXT_CONTEXT || 'true').toLowerCase());
+const TEXT_CONTEXT_MAX_MESSAGES = Number(process.env.VOICE_TEXT_CONTEXT_MAX_MESSAGES || 24);
+const TEXT_CONTEXT_FETCH_LIMIT = Number(process.env.VOICE_TEXT_CONTEXT_FETCH_LIMIT || 80);
+const TEXT_CONTEXT_MAX_AGE_MS = Number(process.env.VOICE_TEXT_CONTEXT_MAX_AGE_MS || 6 * 60 * 60 * 1000);
 
 if (!DISCORD_TOKEN) throw new Error('Missing DISCORD_BOT_TOKEN or DISCORD_VOICE_BOT_TOKEN');
 if (!OPENAI_KEY) throw new Error('Missing OPENAI_API_KEY or VOICE_TOOLS_OPENAI_KEY');
@@ -62,6 +72,7 @@ const allowedUsers = new Set(
 const openai = new OpenAI({ apiKey: OPENAI_KEY });
 const tmpRoot = path.join(os.tmpdir(), 'discord-voice-hermes');
 fs.mkdirSync(tmpRoot, { recursive: true });
+const textContextCache = createContextCache();
 
 const client = new Client({
   intents: [
@@ -92,6 +103,7 @@ function getSession(guildId) {
       receiverAttached: false,
       ignoredUntil: 0,
       history: [],
+      textContext: null,
     };
     player.on(AudioPlayerStatus.Playing, () => { state.playing = true; });
     player.on(AudioPlayerStatus.Idle, () => {
@@ -106,6 +118,56 @@ function getSession(guildId) {
 
 function isAllowed(userId) {
   return allowedUsers.size === 0 || allowedUsers.has(userId);
+}
+
+function rememberDiscordMessage(message) {
+  return rememberTextMessage(textContextCache, {
+    id: message.id,
+    guildId: message.guild?.id,
+    channelId: message.channel?.id,
+    channelName: message.channel?.name,
+    parentId: message.channel?.parentId,
+    parentName: message.channel?.parent?.name,
+    authorId: message.author?.id,
+    authorName: message.author?.username || message.author?.globalName,
+    content: message.content,
+    createdTimestamp: message.createdTimestamp,
+    bot: message.author?.bot,
+  }, { commandPrefix: PREFIX });
+}
+
+function canReadTextChannel(channel) {
+  return typeof channel?.isTextBased === 'function'
+    && channel.isTextBased()
+    && typeof channel.messages?.fetch === 'function';
+}
+
+async function fetchRecentTextContext(guild, voiceChannel, userId) {
+  if (!AUTO_TEXT_CONTEXT) return null;
+  const readable = guild.channels.cache
+    .filter((channel) => canReadTextChannel(channel))
+    .filter((channel) => !voiceChannel?.parentId || channel.parentId === voiceChannel.parentId);
+  const channels = readable.size ? readable : guild.channels.cache.filter((channel) => canReadTextChannel(channel));
+
+  await Promise.allSettled(channels.map(async (channel) => {
+    const messages = await channel.messages.fetch({ limit: TEXT_CONTEXT_FETCH_LIMIT });
+    for (const message of messages.values()) rememberDiscordMessage(message);
+  }));
+
+  return selectRelevantTextContext(textContextCache, {
+    guildId: guild.id,
+    voiceChannelParentId: voiceChannel?.parentId,
+    userId,
+    allowedUserIds: allowedUsers,
+    now: Date.now(),
+    maxAgeMs: TEXT_CONTEXT_MAX_AGE_MS,
+    maxMessages: TEXT_CONTEXT_MAX_MESSAGES,
+  });
+}
+
+async function refreshTextContextForVoice(state, guild, voiceChannel, userId) {
+  state.textContext = await fetchRecentTextContext(guild, voiceChannel, userId);
+  return state.textContext;
 }
 
 function pcmDurationMs(bytes, sampleRate = 48000, channels = 2, bytesPerSample = 2) {
@@ -177,10 +239,12 @@ function buildVoicePrompt(state, transcript, username) {
     .slice(-8)
     .map((turn) => `${turn.role}: ${turn.text}`)
     .join('\n');
+  const textContext = formatTextContextForPrompt(state.textContext);
   return [
     'You are Hermes speaking in a Discord voice channel. Reply conversationally and briefly, optimized for TTS.',
     'Avoid markdown tables/code unless explicitly requested. Keep most replies under 5 sentences.',
-    history ? `Recent conversation:\n${history}` : '',
+    textContext ? `Use this recent Discord text context when relevant:\n${textContext}` : '',
+    history ? `Recent voice conversation:\n${history}` : '',
     `Speaker: ${username}`,
     `User said: ${transcript}`,
   ].filter(Boolean).join('\n');
@@ -336,7 +400,12 @@ async function join(message) {
   state.textChannel = message.channel;
 
   await connectToVoiceChannel(state, message.guild, voiceChannel);
-  return message.reply(`Joined **${voiceChannel.name}**. Speak normally; I will respond after ~${END_SILENCE_MS}ms of silence.`);
+  const context = await refreshTextContextForVoice(state, message.guild, voiceChannel, message.author.id).catch((err) => {
+    console.warn('[text context fetch]', err.message);
+    return null;
+  });
+  const contextNote = context ? ` Using recent text context from ${context.sourceLabel}.` : '';
+  return message.reply(`Joined **${voiceChannel.name}**. Speak normally; I will respond after ~${END_SILENCE_MS}ms of silence.${contextNote}`);
 }
 
 async function leave(message) {
@@ -358,6 +427,8 @@ async function status(message) {
     `stt: ${STT_MODEL}`,
     `tts: ${TTS_MODEL}/${TTS_VOICE}`,
     `autoFollow: ${AUTO_FOLLOW}`,
+    `autoTextContext: ${AUTO_TEXT_CONTEXT}`,
+    `textContext: ${state.textContext?.sourceLabel || 'none'}`,
     `ignoreAfterPlaybackMs: ${IGNORE_AFTER_PLAYBACK_MS}`,
     `responseBackend: ${RESPONSE_BACKEND}`,
     `codexModel: ${CODEX_MODEL}`,
@@ -368,6 +439,7 @@ async function status(message) {
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot || !message.guild) return;
+  rememberDiscordMessage(message);
   if (!message.content.startsWith(PREFIX)) return;
   const arg = message.content.slice(PREFIX.length).trim().toLowerCase();
   try {
@@ -393,7 +465,12 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
   try {
     if (newState.channel && (!connection || connection.joinConfig?.channelId !== newState.channel.id)) {
       await connectToVoiceChannel(state, guild, newState.channel);
-      await state.textChannel?.send(`🔊 Auto-joined **${newState.channel.name}**.`).catch(() => {});
+      const context = await refreshTextContextForVoice(state, guild, newState.channel, userId).catch((err) => {
+        console.warn('[text context fetch]', err.message);
+        return null;
+      });
+      const contextNote = context ? ` Using recent text context from ${context.sourceLabel}.` : '';
+      await state.textChannel?.send(`🔊 Auto-joined **${newState.channel.name}**.${contextNote}`).catch(() => {});
       return;
     }
 

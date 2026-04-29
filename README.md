@@ -70,8 +70,23 @@ Useful optional variables:
 | `VOICE_HERMES_PROVIDER` | `openai-codex` | Hermes provider override |
 | `VOICE_HERMES_MODEL` | `gpt-5.1-codex-mini` | Hermes model override |
 | `VOICE_AUTO_FOLLOW` | `true` | Auto-join allowed users' voice channels |
+| `VOICE_AUTO_TEXT_CONTEXT` | `true` | Auto-sync recent readable Discord text context when joining voice |
+| `VOICE_TEXT_CONTEXT_FETCH_LIMIT` | `80` | Messages to fetch per candidate text channel |
+| `VOICE_TEXT_CONTEXT_MAX_MESSAGES` | `24` | Messages injected into the voice prompt |
+| `VOICE_TEXT_CONTEXT_MAX_AGE_MS` | `21600000` | Max context age, default 6 hours |
 
 See `.env.example` for the full list.
+
+## Automatic Discord text context
+
+When an allowed user joins a voice channel, the bot tries to infer the text conversation you are continuing from without requiring commands:
+
+1. It first reads recent messages from text channels in the same Discord category as the voice channel.
+2. It scores channels higher when they contain recent messages from you or allowed users.
+3. It falls back to your most recently active readable channel if the voice category has no useful text.
+4. It injects a compact `Relevant Discord text context` block into the Hermes voice prompt.
+
+The bot can only use channels where it has `View Channel` and `Read Message History` permissions.
 
 ## Cost notes
 
