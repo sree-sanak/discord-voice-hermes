@@ -26,6 +26,7 @@ import {
   selectRelevantTextContext,
 } from './context.js';
 import { resolveVoiceConfig } from './config.js';
+import { formatVoiceJoinError, shouldReuseVoiceConnection } from './voice-connection.js';
 import {
   DEFAULT_VOICE_CHANNEL_NAME,
   buildVoiceCommands,
@@ -426,6 +427,11 @@ function attachReceiver(state) {
 
 async function connectToVoiceChannel(state, guild, voiceChannel) {
   const existing = getVoiceConnection(guild.id);
+  if (shouldReuseVoiceConnection(existing, guild.id, voiceChannel.id, VoiceConnectionStatus.Ready)) {
+    state.connection = existing;
+    attachReceiver(state);
+    return;
+  }
   if (existing) existing.destroy();
 
   state.receiverAttached = false;
@@ -443,7 +449,14 @@ async function connectToVoiceChannel(state, guild, voiceChannel) {
     state.connection = null;
     state.receiverAttached = false;
   });
-  await entersState(state.connection, VoiceConnectionStatus.Ready, 30000);
+  try {
+    await entersState(state.connection, VoiceConnectionStatus.Ready, 30000);
+  } catch (err) {
+    state.connection.destroy();
+    state.connection = null;
+    state.receiverAttached = false;
+    throw new Error(formatVoiceJoinError(err, voiceChannel.name));
+  }
   attachReceiver(state);
 }
 
