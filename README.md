@@ -34,7 +34,7 @@ It lets you talk to Hermes in a normal Discord voice channel:
 ## Setup
 
 ```bash
-git clone https://github.com/<owner>/discord-voice-hermes.git
+git clone https://github.com/zalatar242/discord-voice-hermes.git
 cd discord-voice-hermes
 npm install
 cp .env.example .env
