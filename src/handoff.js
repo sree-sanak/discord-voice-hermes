@@ -1,4 +1,4 @@
-const DEFAULT_VOICE_CHANNEL_NAME = 'Voice Chat';
+const DEFAULT_VOICE_CHANNEL_NAME = 'voice-chat';
 
 function channelTypeName(channel) {
   if (typeof channel?.type === 'string') return channel.type.toLowerCase();

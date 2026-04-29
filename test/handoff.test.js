@@ -9,7 +9,7 @@ import {
 
 const voice = (overrides) => ({
   id: 'v1',
-  name: 'Voice Chat',
+  name: 'voice-chat',
   type: 'voice',
   parentId: 'cat1',
   ...overrides,
@@ -43,7 +43,7 @@ test('chooseVoiceChannelForHandoff requests default voice creation when category
   const selected = chooseVoiceChannelForHandoff({ channels: [text({})], textChannel: text({ parentId: 'cat1' }) });
   assert.equal(selected.action, 'create');
   assert.equal(selected.parentId, 'cat1');
-  assert.equal(selected.name, 'Voice Chat');
+  assert.equal(selected.name, 'voice-chat');
 });
 
 test('categoryNeedsDefaultVoiceChannel detects categories without any voice channel', () => {
@@ -55,5 +55,5 @@ test('categoryVoiceDefaultsPlan creates one default voice channel per category t
   const plan = categoryVoiceDefaultsPlan({
     channels: [category({ id: 'cat1' }), category({ id: 'cat2' }), voice({ parentId: 'cat1' })],
   });
-  assert.deepEqual(plan, [{ parentId: 'cat2', name: 'Voice Chat' }]);
+  assert.deepEqual(plan, [{ parentId: 'cat2', name: 'voice-chat' }]);
 });
