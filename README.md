@@ -68,7 +68,7 @@ Useful optional variables:
 | `VOICE_TTS_VOICE` | `alloy` | OpenAI TTS voice |
 | `VOICE_RESPONSE_BACKEND` | `hermes` | `hermes` or `codex` |
 | `VOICE_HERMES_PROVIDER` | `openai-codex` | Hermes provider override |
-| `VOICE_HERMES_MODEL` | `gpt-5.1-codex-mini` | Hermes model override |
+| `VOICE_HERMES_MODEL` | `gpt-5.3-codex` | Hermes model override |
 | `VOICE_AUTO_FOLLOW` | `true` | Auto-join allowed users' voice channels |
 | `VOICE_AUTO_TEXT_CONTEXT` | `true` | Auto-sync recent readable Discord text context when joining voice |
 | `VOICE_TEXT_CONTEXT_FETCH_LIMIT` | `80` | Messages to fetch per candidate text channel |
