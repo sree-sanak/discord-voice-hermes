@@ -75,14 +75,17 @@ Useful optional variables:
 | `VOICE_STT_MODEL` | `gpt-4o-mini-transcribe` | OpenAI transcription model |
 | `VOICE_TTS_MODEL` | `gpt-4o-mini-tts` | OpenAI speech model |
 | `VOICE_TTS_VOICE` | `alloy` | OpenAI TTS voice |
+| `VOICE_FAST_MODE` | `true` in `.env.example`, off unless set | Lower-latency profile: shorter silence cutoff, less injected context, shorter Hermes timeout |
+| `VOICE_MIN_AUDIO_MS` | `300`, or `200` with fast mode | Ignore shorter audio clips as noise |
+| `VOICE_END_SILENCE_MS` | `450`, or `275` with fast mode | Silence needed before Hermes responds |
 | `VOICE_RESPONSE_BACKEND` | `hermes` | `hermes` or `codex` |
 | `VOICE_HERMES_PROVIDER` | `openai-codex` | Hermes provider override |
 | `VOICE_HERMES_MODEL` | `gpt-5.5` | Hermes model override |
 | `VOICE_AUTO_FOLLOW` | `true` | Auto-join allowed users' voice channels |
 | `VOICE_AUTO_TEXT_CONTEXT` | `true` | Auto-sync recent readable Discord text context when joining voice |
 | `VOICE_DEFAULT_CHANNEL_NAME` | `voice-chat` | Name used when creating default category voice channels |
-| `VOICE_TEXT_CONTEXT_FETCH_LIMIT` | `80` | Messages to fetch per candidate text channel |
-| `VOICE_TEXT_CONTEXT_MAX_MESSAGES` | `24` | Messages injected into the voice prompt |
+| `VOICE_TEXT_CONTEXT_FETCH_LIMIT` | `80`, or `30` with fast mode | Messages to fetch per candidate text channel |
+| `VOICE_TEXT_CONTEXT_MAX_MESSAGES` | `24`, or `8` with fast mode | Messages injected into the voice prompt |
 | `VOICE_TEXT_CONTEXT_MAX_AGE_MS` | `21600000` | Max context age, default 6 hours |
 
 See `.env.example` for the full list.

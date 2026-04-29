@@ -25,6 +25,7 @@ import {
   rememberTextMessage,
   selectRelevantTextContext,
 } from './context.js';
+import { resolveVoiceConfig } from './config.js';
 import {
   DEFAULT_VOICE_CHANNEL_NAME,
   buildVoiceCommands,
@@ -39,31 +40,33 @@ dotenvConfig({ path: path.join(hermesHome, '.env'), override: false, quiet: true
 
 const execFileAsync = promisify(execFile);
 
-const DISCORD_TOKEN = process.env.DISCORD_VOICE_BOT_TOKEN || process.env.DISCORD_BOT_TOKEN;
-const OPENAI_KEY = process.env.VOICE_TOOLS_OPENAI_KEY || process.env.OPENAI_API_KEY;
-const PREFIX = process.env.VOICE_COMMAND_PREFIX || '!voice';
-const STT_MODEL = process.env.VOICE_STT_MODEL || 'gpt-4o-mini-transcribe';
-const TTS_MODEL = process.env.VOICE_TTS_MODEL || 'gpt-4o-mini-tts';
-const TTS_VOICE = process.env.VOICE_TTS_VOICE || 'alloy';
-const MIN_AUDIO_MS = Number(process.env.VOICE_MIN_AUDIO_MS || 300);
-const END_SILENCE_MS = Number(process.env.VOICE_END_SILENCE_MS || 450);
-const HERMES_BIN = process.env.VOICE_HERMES_BIN || 'hermes';
-const HERMES_SESSION_PREFIX = process.env.VOICE_HERMES_SESSION || 'discord-voice';
-const HERMES_PROVIDER = process.env.VOICE_HERMES_PROVIDER || 'openai-codex';
-const HERMES_MODEL = process.env.VOICE_HERMES_MODEL || 'gpt-5.5';
-const RESPONSE_BACKEND = (process.env.VOICE_RESPONSE_BACKEND || 'hermes').toLowerCase();
-const HERMES_TOOLSETS = process.env.VOICE_HERMES_TOOLSETS || '';
-const MAX_HERMES_MS = Number(process.env.VOICE_HERMES_TIMEOUT_MS || 25000);
-const CODEX_BIN = process.env.VOICE_CODEX_BIN || 'codex';
-const CODEX_HOME = process.env.VOICE_CODEX_HOME || '/var/lib/hermes-codex';
-const CODEX_MODEL = process.env.VOICE_CODEX_MODEL || 'gpt-5.5';
-const MAX_CODEX_MS = Number(process.env.VOICE_CODEX_TIMEOUT_MS || 60000);
-const AUTO_FOLLOW = !['0', 'false', 'no'].includes(String(process.env.VOICE_AUTO_FOLLOW || 'true').toLowerCase());
-const IGNORE_AFTER_PLAYBACK_MS = Number(process.env.VOICE_IGNORE_AFTER_PLAYBACK_MS || 1200);
-const AUTO_TEXT_CONTEXT = !['0', 'false', 'no'].includes(String(process.env.VOICE_AUTO_TEXT_CONTEXT || 'true').toLowerCase());
-const TEXT_CONTEXT_MAX_MESSAGES = Number(process.env.VOICE_TEXT_CONTEXT_MAX_MESSAGES || 24);
-const TEXT_CONTEXT_FETCH_LIMIT = Number(process.env.VOICE_TEXT_CONTEXT_FETCH_LIMIT || 80);
-const TEXT_CONTEXT_MAX_AGE_MS = Number(process.env.VOICE_TEXT_CONTEXT_MAX_AGE_MS || 6 * 60 * 60 * 1000);
+const config = resolveVoiceConfig(process.env);
+const DISCORD_TOKEN = config.discordToken;
+const OPENAI_KEY = config.openaiKey;
+const PREFIX = config.prefix;
+const FAST_MODE = config.fastMode;
+const STT_MODEL = config.sttModel;
+const TTS_MODEL = config.ttsModel;
+const TTS_VOICE = config.ttsVoice;
+const MIN_AUDIO_MS = config.minAudioMs;
+const END_SILENCE_MS = config.endSilenceMs;
+const HERMES_BIN = config.hermesBin;
+const HERMES_SESSION_PREFIX = config.hermesSessionPrefix;
+const HERMES_PROVIDER = config.hermesProvider;
+const HERMES_MODEL = config.hermesModel;
+const RESPONSE_BACKEND = config.responseBackend;
+const HERMES_TOOLSETS = config.hermesToolsets;
+const MAX_HERMES_MS = config.hermesTimeoutMs;
+const CODEX_BIN = config.codexBin;
+const CODEX_HOME = config.codexHome;
+const CODEX_MODEL = config.codexModel;
+const MAX_CODEX_MS = config.codexTimeoutMs;
+const AUTO_FOLLOW = config.autoFollow;
+const IGNORE_AFTER_PLAYBACK_MS = config.ignoreAfterPlaybackMs;
+const AUTO_TEXT_CONTEXT = config.autoTextContext;
+const TEXT_CONTEXT_MAX_MESSAGES = config.textContextMaxMessages;
+const TEXT_CONTEXT_FETCH_LIMIT = config.textContextFetchLimit;
+const TEXT_CONTEXT_MAX_AGE_MS = config.textContextMaxAgeMs;
 const DEFAULT_VOICE_CHANNEL = process.env.VOICE_DEFAULT_CHANNEL_NAME || DEFAULT_VOICE_CHANNEL_NAME;
 
 if (!DISCORD_TOKEN) throw new Error('Missing DISCORD_BOT_TOKEN or DISCORD_VOICE_BOT_TOKEN');
@@ -472,8 +475,13 @@ async function status(message) {
     `busy: ${state.busy}`,
     `playing: ${state.playing}`,
     `allowedUsers: ${allowedUsers.size || 'any'}`,
+    `fastMode: ${FAST_MODE}`,
     `stt: ${STT_MODEL}`,
     `tts: ${TTS_MODEL}/${TTS_VOICE}`,
+    `endSilenceMs: ${END_SILENCE_MS}`,
+    `minAudioMs: ${MIN_AUDIO_MS}`,
+    `textContextMaxMessages: ${TEXT_CONTEXT_MAX_MESSAGES}`,
+    `textContextFetchLimit: ${TEXT_CONTEXT_FETCH_LIMIT}`,
     `autoFollow: ${AUTO_FOLLOW}`,
     `autoTextContext: ${AUTO_TEXT_CONTEXT}`,
     `textContext: ${state.textContext?.sourceLabel || 'none'}`,
@@ -603,7 +611,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
 client.once('clientReady', async () => {
   console.log(`Discord Voice Hermes ready as ${client.user.tag}`);
-  console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'none'}; responseBackend=${RESPONSE_BACKEND}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}`);
+  console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; fastMode=${FAST_MODE}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'none'}; responseBackend=${RESPONSE_BACKEND}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}; endSilenceMs=${END_SILENCE_MS}; textContextMaxMessages=${TEXT_CONTEXT_MAX_MESSAGES}`);
   await Promise.allSettled(client.guilds.cache.map((guild) => guild.commands.set(buildVoiceCommands())));
   console.log(`Registered slash commands: ${buildVoiceCommands().map((command) => `/${command.name}`).join(', ')}`);
 });

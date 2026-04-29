@@ -1,0 +1,45 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { resolveVoiceConfig } from '../src/config.js';
+
+test('fast mode lowers voice latency defaults while keeping Hermes quality model', () => {
+  const config = resolveVoiceConfig({ VOICE_FAST_MODE: 'true' });
+
+  assert.equal(config.fastMode, true);
+  assert.equal(config.minAudioMs, 200);
+  assert.equal(config.endSilenceMs, 275);
+  assert.equal(config.textContextMaxMessages, 8);
+  assert.equal(config.textContextFetchLimit, 30);
+  assert.equal(config.hermesTimeoutMs, 15000);
+  assert.equal(config.hermesModel, 'gpt-5.5');
+});
+
+test('explicit env values override fast mode defaults', () => {
+  const config = resolveVoiceConfig({
+    VOICE_FAST_MODE: '1',
+    VOICE_END_SILENCE_MS: '350',
+    VOICE_MIN_AUDIO_MS: '250',
+    VOICE_TEXT_CONTEXT_MAX_MESSAGES: '12',
+    VOICE_TEXT_CONTEXT_FETCH_LIMIT: '40',
+    VOICE_HERMES_TIMEOUT_MS: '22000',
+    VOICE_HERMES_MODEL: 'custom-fast-model',
+  });
+
+  assert.equal(config.endSilenceMs, 350);
+  assert.equal(config.minAudioMs, 250);
+  assert.equal(config.textContextMaxMessages, 12);
+  assert.equal(config.textContextFetchLimit, 40);
+  assert.equal(config.hermesTimeoutMs, 22000);
+  assert.equal(config.hermesModel, 'custom-fast-model');
+});
+
+test('normal mode preserves existing conservative defaults', () => {
+  const config = resolveVoiceConfig({});
+
+  assert.equal(config.fastMode, false);
+  assert.equal(config.minAudioMs, 300);
+  assert.equal(config.endSilenceMs, 450);
+  assert.equal(config.textContextMaxMessages, 24);
+  assert.equal(config.textContextFetchLimit, 80);
+  assert.equal(config.hermesTimeoutMs, 25000);
+});
