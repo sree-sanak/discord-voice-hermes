@@ -51,6 +51,8 @@ export function resolveVoiceConfig(env = process.env) {
     codexHome: env.VOICE_CODEX_HOME || '/var/lib/hermes-codex',
     codexModel: env.VOICE_CODEX_MODEL || 'gpt-5.5',
     codexTimeoutMs: numberFromEnv(env, 'VOICE_CODEX_TIMEOUT_MS', 60000),
+    daveEncryption: isEnabled(env.VOICE_DAVE_ENCRYPTION, false),
+    decryptionFailureTolerance: numberFromEnv(env, 'VOICE_DECRYPTION_FAILURE_TOLERANCE', 1000),
     autoFollow: isEnabled(env.VOICE_AUTO_FOLLOW, true),
     ignoreAfterPlaybackMs: numberFromEnv(env, 'VOICE_IGNORE_AFTER_PLAYBACK_MS', 1200),
     autoTextContext: isEnabled(env.VOICE_AUTO_TEXT_CONTEXT, true),

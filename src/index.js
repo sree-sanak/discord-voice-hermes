@@ -61,6 +61,8 @@ const CODEX_BIN = config.codexBin;
 const CODEX_HOME = config.codexHome;
 const CODEX_MODEL = config.codexModel;
 const MAX_CODEX_MS = config.codexTimeoutMs;
+const DAVE_ENCRYPTION = config.daveEncryption;
+const DECRYPTION_FAILURE_TOLERANCE = config.decryptionFailureTolerance;
 const AUTO_FOLLOW = config.autoFollow;
 const IGNORE_AFTER_PLAYBACK_MS = config.ignoreAfterPlaybackMs;
 const AUTO_TEXT_CONTEXT = config.autoTextContext;
@@ -433,6 +435,9 @@ async function connectToVoiceChannel(state, guild, voiceChannel) {
     adapterCreator: guild.voiceAdapterCreator,
     selfDeaf: false,
     selfMute: false,
+    daveEncryption: DAVE_ENCRYPTION,
+    decryptionFailureTolerance: DECRYPTION_FAILURE_TOLERANCE,
+    debug: false,
   });
   state.connection.on(VoiceConnectionStatus.Disconnected, () => {
     state.connection = null;
@@ -486,6 +491,8 @@ async function status(message) {
     `autoTextContext: ${AUTO_TEXT_CONTEXT}`,
     `textContext: ${state.textContext?.sourceLabel || 'none'}`,
     `ignoreAfterPlaybackMs: ${IGNORE_AFTER_PLAYBACK_MS}`,
+    `daveEncryption: ${DAVE_ENCRYPTION}`,
+    `decryptionFailureTolerance: ${DECRYPTION_FAILURE_TOLERANCE}`,
     `responseBackend: ${RESPONSE_BACKEND}`,
     `codexModel: ${CODEX_MODEL}`,
     `hermesSessionId: ${state.hermesSessionId || 'not started'}`,
@@ -525,8 +532,8 @@ async function ensureVoiceDefaults(guild) {
 async function handleInteraction(interaction) {
   if (!interaction.isChatInputCommand() || !interaction.guild) return;
   if (!['voice-handoff', 'voice-defaults'].includes(interaction.commandName)) return;
-  await interaction.deferReply();
   try {
+    await interaction.deferReply();
     if (interaction.commandName === 'voice-handoff') {
       const member = await interaction.guild.members.fetch(interaction.user.id).catch(() => interaction.member);
       const result = await handoff({
@@ -545,7 +552,10 @@ async function handleInteraction(interaction) {
     return interaction.editReply(note);
   } catch (err) {
     console.error('[interaction]', err);
-    return interaction.editReply(`Voice command failed: ${err.message}`);
+    if (interaction.deferred || interaction.replied) {
+      return interaction.editReply(`Voice command failed: ${err.message}`).catch(() => {});
+    }
+    return interaction.reply({ content: `Voice command failed: ${err.message}`, ephemeral: true }).catch(() => {});
   }
 }
 
@@ -572,6 +582,8 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', handleInteraction);
+client.on('error', (err) => console.error('[discord client]', err));
+process.on('unhandledRejection', (err) => console.error('[unhandled rejection]', err));
 
 client.on('voiceStateUpdate', async (oldState, newState) => {
   if (!AUTO_FOLLOW || newState.member?.user?.bot) return;
@@ -611,7 +623,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
 client.once('clientReady', async () => {
   console.log(`Discord Voice Hermes ready as ${client.user.tag}`);
-  console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; fastMode=${FAST_MODE}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'none'}; responseBackend=${RESPONSE_BACKEND}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}; endSilenceMs=${END_SILENCE_MS}; textContextMaxMessages=${TEXT_CONTEXT_MAX_MESSAGES}`);
+  console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; fastMode=${FAST_MODE}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'none'}; responseBackend=${RESPONSE_BACKEND}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}; endSilenceMs=${END_SILENCE_MS}; textContextMaxMessages=${TEXT_CONTEXT_MAX_MESSAGES}; daveEncryption=${DAVE_ENCRYPTION}; decryptionFailureTolerance=${DECRYPTION_FAILURE_TOLERANCE}`);
   await Promise.allSettled(client.guilds.cache.map((guild) => guild.commands.set(buildVoiceCommands())));
   console.log(`Registered slash commands: ${buildVoiceCommands().map((command) => `/${command.name}`).join(', ')}`);
 });
