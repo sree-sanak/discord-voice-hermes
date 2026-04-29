@@ -31,6 +31,17 @@ export function buildVoiceCommands() {
   ];
 }
 
+export function resolveCategoryIdForTextChannel(textChannel, channels) {
+  const list = Array.from(channels?.values ? channels.values() : channels || []);
+  const directParent = list.find((channel) => channel.id === textChannel?.parentId);
+  if (isCategoryChannel(directParent)) return directParent.id;
+  if (directParent?.parentId) {
+    const grandParent = list.find((channel) => channel.id === directParent.parentId);
+    if (isCategoryChannel(grandParent)) return grandParent.id;
+  }
+  return null;
+}
+
 export function chooseVoiceChannelForHandoff({
   channels,
   textChannel,
@@ -43,7 +54,7 @@ export function chooseVoiceChannelForHandoff({
     if (current) return { action: 'join', channel: current, reason: 'member-current-voice' };
   }
 
-  const parentId = textChannel?.parentId;
+  const parentId = resolveCategoryIdForTextChannel(textChannel, list);
   const sameCategoryVoice = list
     .filter((channel) => isVoiceLikeChannel(channel) && channel.parentId === parentId)
     .sort((a, b) => {

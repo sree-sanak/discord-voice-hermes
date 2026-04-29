@@ -5,6 +5,7 @@ import {
   chooseVoiceChannelForHandoff,
   categoryNeedsDefaultVoiceChannel,
   categoryVoiceDefaultsPlan,
+  resolveCategoryIdForTextChannel,
 } from '../src/handoff.js';
 
 const voice = (overrides) => ({
@@ -16,6 +17,19 @@ const voice = (overrides) => ({
 });
 const text = (overrides) => ({ id: 't1', name: 'chat', type: 'text', parentId: 'cat1', ...overrides });
 const category = (overrides) => ({ id: 'cat1', name: 'Startup', type: 'category', ...overrides });
+
+test('resolveCategoryIdForTextChannel uses direct parent for normal text channels', () => {
+  const selected = resolveCategoryIdForTextChannel(text({ parentId: 'cat1' }), [category({ id: 'cat1' })]);
+  assert.equal(selected, 'cat1');
+});
+
+test('resolveCategoryIdForTextChannel resolves thread parent text channel to its category', () => {
+  const selected = resolveCategoryIdForTextChannel(
+    text({ id: 'thread1', type: 'thread', parentId: 'text-parent' }),
+    [category({ id: 'cat1' }), text({ id: 'text-parent', parentId: 'cat1' })],
+  );
+  assert.equal(selected, 'cat1');
+});
 
 test('buildVoiceCommands exposes memorable slash commands', () => {
   const commands = buildVoiceCommands();
@@ -32,15 +46,24 @@ test('chooseVoiceChannelForHandoff prefers the user current voice channel', () =
 
 test('chooseVoiceChannelForHandoff picks same-category voice channel when user is not in voice', () => {
   const selected = chooseVoiceChannelForHandoff({
-    channels: [text({}), voice({ id: 'other', parentId: 'cat2' }), voice({ id: 'same', parentId: 'cat1' })],
+    channels: [category({ id: 'cat1' }), category({ id: 'cat2' }), text({}), voice({ id: 'other', parentId: 'cat2' }), voice({ id: 'same', parentId: 'cat1' })],
     textChannel: text({ parentId: 'cat1' }),
   });
   assert.equal(selected.action, 'join');
   assert.equal(selected.channel.id, 'same');
 });
 
+test('chooseVoiceChannelForHandoff does not create voice channel under a thread parent text channel', () => {
+  const selected = chooseVoiceChannelForHandoff({
+    channels: [category({ id: 'cat1' }), text({ id: 'text-parent', parentId: 'cat1' })],
+    textChannel: text({ id: 'thread1', type: 'thread', parentId: 'text-parent' }),
+  });
+  assert.equal(selected.action, 'create');
+  assert.equal(selected.parentId, 'cat1');
+});
+
 test('chooseVoiceChannelForHandoff requests default voice creation when category has no voice channel', () => {
-  const selected = chooseVoiceChannelForHandoff({ channels: [text({})], textChannel: text({ parentId: 'cat1' }) });
+  const selected = chooseVoiceChannelForHandoff({ channels: [category({ id: 'cat1' }), text({})], textChannel: text({ parentId: 'cat1' }) });
   assert.equal(selected.action, 'create');
   assert.equal(selected.parentId, 'cat1');
   assert.equal(selected.name, 'voice-chat');
