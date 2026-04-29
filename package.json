@@ -1,0 +1,23 @@
+{
+  "name": "discord-voice-hermes",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Low-latency Discord voice-channel bridge for Hermes Agent",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "check": "node --check src/index.js"
+  },
+  "dependencies": {
+    "@discordjs/voice": "latest",
+    "discord.js": "latest",
+    "dotenv": "latest",
+    "openai": "latest",
+    "opusscript": "^0.0.8",
+    "prism-media": "latest"
+  },
+  "overrides": {
+    "tar": "7.5.13"
+  }
+}
