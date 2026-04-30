@@ -37,6 +37,7 @@ import {
   buildVoiceCommands,
   categoryVoiceDefaultsPlan,
   chooseVoiceChannelForHandoff,
+  shouldConnectImmediatelyForHandoff,
 } from './handoff.js';
 
 // Load a local .env first, then the main Hermes env file when run alongside Hermes.
@@ -216,16 +217,24 @@ async function createDefaultVoiceChannel(guild, parentId) {
 }
 
 async function resolveHandoffVoiceChannel(guild, textChannel, member) {
+  const memberVoiceChannelId = member?.voice?.channelId;
   const decision = chooseVoiceChannelForHandoff({
     channels: guild.channels.cache,
     textChannel,
-    memberVoiceChannelId: member?.voice?.channelId,
+    memberVoiceChannelId,
     defaultVoiceChannelName: DEFAULT_VOICE_CHANNEL,
   });
-  if (decision.action === 'join') return { channel: decision.channel, created: false, reason: decision.reason };
+  if (decision.action === 'join') {
+    return {
+      channel: decision.channel,
+      created: false,
+      reason: decision.reason,
+      connectImmediately: shouldConnectImmediatelyForHandoff(decision, memberVoiceChannelId),
+    };
+  }
   if (decision.action === 'create') {
     const channel = await createDefaultVoiceChannel(guild, decision.parentId);
-    return { channel, created: true, reason: decision.reason };
+    return { channel, created: true, reason: decision.reason, connectImmediately: false };
   }
   throw new Error('No voice channel found, and this text channel is not inside a category where I can create one.');
 }
@@ -549,14 +558,17 @@ async function handoff({ guild, textChannel, member, userId }) {
   const state = getSession(guild.id);
   state.textChannel = textChannel;
 
-  const { channel: voiceChannel, created } = await resolveHandoffVoiceChannel(guild, textChannel, member);
-  await connectToVoiceChannel(state, guild, voiceChannel);
+  const { channel: voiceChannel, created, connectImmediately } = await resolveHandoffVoiceChannel(guild, textChannel, member);
   const context = await setExplicitTextContextFromChannel(state, textChannel).catch((err) => {
     console.warn('[explicit text context fetch]', err.message);
     return null;
   });
   const createdNote = created ? ` Created **${voiceChannel.name}** first.` : '';
   const contextNote = context ? ` Locked context/transcripts to #${textChannel.name}.` : ` I will mirror transcripts in #${textChannel.name}.`;
+  if (!connectImmediately) {
+    return `Voice handoff ready for **${voiceChannel.name}** from #${textChannel.name}.${createdNote}${contextNote} Join **${voiceChannel.name}** and I will auto-follow you there.`;
+  }
+  await connectToVoiceChannel(state, guild, voiceChannel);
   return `Joined **${voiceChannel.name}** from #${textChannel.name}.${createdNote}${contextNote}`;
 }
 

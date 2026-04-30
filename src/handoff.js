@@ -71,6 +71,12 @@ export function chooseVoiceChannelForHandoff({
   return { action: 'none', reason: 'no-voice-channel-and-no-category' };
 }
 
+export function shouldConnectImmediatelyForHandoff(selection, memberVoiceChannelId = null) {
+  return selection?.action === 'join'
+    && selection?.reason === 'member-current-voice'
+    && Boolean(memberVoiceChannelId);
+}
+
 export function categoryNeedsDefaultVoiceChannel(categoryChannel, channels) {
   const list = Array.from(channels?.values ? channels.values() : channels || []);
   return !list.some((channel) => isVoiceLikeChannel(channel) && channel.parentId === categoryChannel.id);

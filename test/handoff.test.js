@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   buildVoiceCommands,
   chooseVoiceChannelForHandoff,
+  shouldConnectImmediatelyForHandoff,
   categoryNeedsDefaultVoiceChannel,
   categoryVoiceDefaultsPlan,
   resolveCategoryIdForTextChannel,
@@ -51,6 +52,15 @@ test('chooseVoiceChannelForHandoff picks same-category voice channel when user i
   });
   assert.equal(selected.action, 'join');
   assert.equal(selected.channel.id, 'same');
+  assert.equal(shouldConnectImmediatelyForHandoff(selected, null), false);
+});
+
+test('shouldConnectImmediatelyForHandoff only joins immediately when the member is already in voice', () => {
+  const selected = { action: 'join', channel: voice({ id: 'same' }), reason: 'same-category-voice' };
+  const current = { action: 'join', channel: voice({ id: 'current' }), reason: 'member-current-voice' };
+
+  assert.equal(shouldConnectImmediatelyForHandoff(selected, null), false);
+  assert.equal(shouldConnectImmediatelyForHandoff(current, 'current'), true);
 });
 
 test('chooseVoiceChannelForHandoff does not create voice channel under a thread parent text channel', () => {
