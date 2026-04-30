@@ -28,6 +28,7 @@ import {
 import { resolveVoiceConfig } from './config.js';
 import {
   formatVoiceJoinError,
+  shouldKeepPendingVoiceConnection,
   shouldRetryVoiceJoin,
   shouldReuseVoiceConnection,
   voiceJoinRetryDelayMs,
@@ -444,6 +445,18 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function registerVoiceConnection(state, connection, voiceChannel) {
+  state.connection = connection;
+  connection.on('stateChange', (oldState, newState) => {
+    console.log(`[voice connection] ${voiceChannel.name}: ${oldState.status} -> ${newState.status}`);
+    if (newState.status === VoiceConnectionStatus.Ready) attachReceiver(state);
+  });
+  connection.on(VoiceConnectionStatus.Disconnected, () => {
+    state.connection = null;
+    state.receiverAttached = false;
+  });
+}
+
 async function createReadyVoiceConnection(guild, voiceChannel, attempt) {
   const connection = joinVoiceChannel({
     channelId: voiceChannel.id,
@@ -457,15 +470,20 @@ async function createReadyVoiceConnection(guild, voiceChannel, attempt) {
   });
   try {
     await entersState(connection, VoiceConnectionStatus.Ready, 30000);
-    return connection;
+    return { connection, ready: true };
   } catch (err) {
-    connection.destroy();
     if (shouldRetryVoiceJoin(err, attempt, VOICE_JOIN_ATTEMPTS)) {
+      connection.destroy();
       const delayMs = voiceJoinRetryDelayMs(attempt);
       console.warn(`[voice join] attempt ${attempt}/${VOICE_JOIN_ATTEMPTS} timed out for ${voiceChannel.name}; retrying in ${delayMs}ms`);
       await sleep(delayMs);
       return null;
     }
+    if (shouldKeepPendingVoiceConnection(err, attempt, VOICE_JOIN_ATTEMPTS)) {
+      console.warn(`[voice join] attempt ${attempt}/${VOICE_JOIN_ATTEMPTS} timed out for ${voiceChannel.name}; keeping pending connection alive for late Ready`);
+      return { connection, ready: false };
+    }
+    connection.destroy();
     throw err;
   }
 }
@@ -482,15 +500,11 @@ async function connectToVoiceChannel(state, guild, voiceChannel) {
   state.receiverAttached = false;
   for (let attempt = 1; attempt <= VOICE_JOIN_ATTEMPTS; attempt += 1) {
     try {
-      const connection = await createReadyVoiceConnection(guild, voiceChannel, attempt);
-      if (!connection) continue;
-      state.connection = connection;
-      state.connection.on(VoiceConnectionStatus.Disconnected, () => {
-        state.connection = null;
-        state.receiverAttached = false;
-      });
-      attachReceiver(state);
-      return;
+      const result = await createReadyVoiceConnection(guild, voiceChannel, attempt);
+      if (!result) continue;
+      registerVoiceConnection(state, result.connection, voiceChannel);
+      if (result.ready) attachReceiver(state);
+      return result;
     } catch (err) {
       state.connection = null;
       state.receiverAttached = false;

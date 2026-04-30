@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   shouldRetryVoiceJoin,
   shouldReuseVoiceConnection,
+  shouldKeepPendingVoiceConnection,
   formatVoiceJoinError,
   voiceJoinRetryDelayMs,
 } from '../src/voice-connection.js';
@@ -42,4 +43,12 @@ test('voiceJoinRetryDelayMs uses short bounded backoff', () => {
   assert.equal(voiceJoinRetryDelayMs(1), 750);
   assert.equal(voiceJoinRetryDelayMs(2), 1500);
   assert.equal(voiceJoinRetryDelayMs(9), 3000);
+});
+
+test('shouldKeepPendingVoiceConnection keeps the final aborted handshake alive for late Ready', () => {
+  const err = Object.assign(new Error('The operation was aborted'), { name: 'AbortError', code: 'ABORT_ERR' });
+
+  assert.equal(shouldKeepPendingVoiceConnection(err, 3, 3), true);
+  assert.equal(shouldKeepPendingVoiceConnection(err, 2, 3), false);
+  assert.equal(shouldKeepPendingVoiceConnection(new Error('Missing permissions'), 3, 3), false);
 });

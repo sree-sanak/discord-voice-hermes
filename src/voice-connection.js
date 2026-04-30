@@ -17,6 +17,10 @@ export function shouldRetryVoiceJoin(err, attempt, maxAttempts) {
   return isVoiceJoinAbortError(err) && attempt < maxAttempts;
 }
 
+export function shouldKeepPendingVoiceConnection(err, attempt, maxAttempts) {
+  return isVoiceJoinAbortError(err) && attempt >= maxAttempts;
+}
+
 export function voiceJoinRetryDelayMs(attempt) {
   return Math.min(3000, Math.max(1, attempt) * 750);
 }
