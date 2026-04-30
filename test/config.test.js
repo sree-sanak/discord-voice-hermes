@@ -13,6 +13,7 @@ test('fast mode lowers voice latency defaults while keeping Hermes quality model
   assert.equal(config.hermesTimeoutMs, 15000);
   assert.equal(config.hermesModel, 'gpt-5.5');
   assert.equal(config.daveEncryption, false);
+  assert.equal(config.voiceJoinAttempts, 3);
 });
 
 test('DAVE encryption can be explicitly enabled when Discord voice receive supports it', () => {

@@ -53,6 +53,7 @@ export function resolveVoiceConfig(env = process.env) {
     codexTimeoutMs: numberFromEnv(env, 'VOICE_CODEX_TIMEOUT_MS', 60000),
     daveEncryption: isEnabled(env.VOICE_DAVE_ENCRYPTION, false),
     decryptionFailureTolerance: numberFromEnv(env, 'VOICE_DECRYPTION_FAILURE_TOLERANCE', 1000),
+    voiceJoinAttempts: numberFromEnv(env, 'VOICE_JOIN_ATTEMPTS', 3),
     autoFollow: isEnabled(env.VOICE_AUTO_FOLLOW, true),
     ignoreAfterPlaybackMs: numberFromEnv(env, 'VOICE_IGNORE_AFTER_PLAYBACK_MS', 1200),
     autoTextContext: isEnabled(env.VOICE_AUTO_TEXT_CONTEXT, true),

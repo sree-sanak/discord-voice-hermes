@@ -26,7 +26,12 @@ import {
   selectRelevantTextContext,
 } from './context.js';
 import { resolveVoiceConfig } from './config.js';
-import { formatVoiceJoinError, shouldReuseVoiceConnection } from './voice-connection.js';
+import {
+  formatVoiceJoinError,
+  shouldRetryVoiceJoin,
+  shouldReuseVoiceConnection,
+  voiceJoinRetryDelayMs,
+} from './voice-connection.js';
 import {
   DEFAULT_VOICE_CHANNEL_NAME,
   buildVoiceCommands,
@@ -64,6 +69,7 @@ const CODEX_MODEL = config.codexModel;
 const MAX_CODEX_MS = config.codexTimeoutMs;
 const DAVE_ENCRYPTION = config.daveEncryption;
 const DECRYPTION_FAILURE_TOLERANCE = config.decryptionFailureTolerance;
+const VOICE_JOIN_ATTEMPTS = config.voiceJoinAttempts;
 const AUTO_FOLLOW = config.autoFollow;
 const IGNORE_AFTER_PLAYBACK_MS = config.ignoreAfterPlaybackMs;
 const AUTO_TEXT_CONTEXT = config.autoTextContext;
@@ -425,6 +431,36 @@ function attachReceiver(state) {
   });
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function createReadyVoiceConnection(guild, voiceChannel, attempt) {
+  const connection = joinVoiceChannel({
+    channelId: voiceChannel.id,
+    guildId: guild.id,
+    adapterCreator: guild.voiceAdapterCreator,
+    selfDeaf: false,
+    selfMute: false,
+    daveEncryption: DAVE_ENCRYPTION,
+    decryptionFailureTolerance: DECRYPTION_FAILURE_TOLERANCE,
+    debug: false,
+  });
+  try {
+    await entersState(connection, VoiceConnectionStatus.Ready, 30000);
+    return connection;
+  } catch (err) {
+    connection.destroy();
+    if (shouldRetryVoiceJoin(err, attempt, VOICE_JOIN_ATTEMPTS)) {
+      const delayMs = voiceJoinRetryDelayMs(attempt);
+      console.warn(`[voice join] attempt ${attempt}/${VOICE_JOIN_ATTEMPTS} timed out for ${voiceChannel.name}; retrying in ${delayMs}ms`);
+      await sleep(delayMs);
+      return null;
+    }
+    throw err;
+  }
+}
+
 async function connectToVoiceChannel(state, guild, voiceChannel) {
   const existing = getVoiceConnection(guild.id);
   if (shouldReuseVoiceConnection(existing, guild.id, voiceChannel.id, VoiceConnectionStatus.Ready)) {
@@ -435,29 +471,23 @@ async function connectToVoiceChannel(state, guild, voiceChannel) {
   if (existing) existing.destroy();
 
   state.receiverAttached = false;
-  state.connection = joinVoiceChannel({
-    channelId: voiceChannel.id,
-    guildId: guild.id,
-    adapterCreator: guild.voiceAdapterCreator,
-    selfDeaf: false,
-    selfMute: false,
-    daveEncryption: DAVE_ENCRYPTION,
-    decryptionFailureTolerance: DECRYPTION_FAILURE_TOLERANCE,
-    debug: false,
-  });
-  state.connection.on(VoiceConnectionStatus.Disconnected, () => {
-    state.connection = null;
-    state.receiverAttached = false;
-  });
-  try {
-    await entersState(state.connection, VoiceConnectionStatus.Ready, 30000);
-  } catch (err) {
-    state.connection.destroy();
-    state.connection = null;
-    state.receiverAttached = false;
-    throw new Error(formatVoiceJoinError(err, voiceChannel.name));
+  for (let attempt = 1; attempt <= VOICE_JOIN_ATTEMPTS; attempt += 1) {
+    try {
+      const connection = await createReadyVoiceConnection(guild, voiceChannel, attempt);
+      if (!connection) continue;
+      state.connection = connection;
+      state.connection.on(VoiceConnectionStatus.Disconnected, () => {
+        state.connection = null;
+        state.receiverAttached = false;
+      });
+      attachReceiver(state);
+      return;
+    } catch (err) {
+      state.connection = null;
+      state.receiverAttached = false;
+      throw new Error(formatVoiceJoinError(err, voiceChannel.name, VOICE_JOIN_ATTEMPTS));
+    }
   }
-  attachReceiver(state);
 }
 
 async function join(message) {
@@ -506,6 +536,7 @@ async function status(message) {
     `ignoreAfterPlaybackMs: ${IGNORE_AFTER_PLAYBACK_MS}`,
     `daveEncryption: ${DAVE_ENCRYPTION}`,
     `decryptionFailureTolerance: ${DECRYPTION_FAILURE_TOLERANCE}`,
+    `voiceJoinAttempts: ${VOICE_JOIN_ATTEMPTS}`,
     `responseBackend: ${RESPONSE_BACKEND}`,
     `codexModel: ${CODEX_MODEL}`,
     `hermesSessionId: ${state.hermesSessionId || 'not started'}`,
@@ -636,7 +667,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
 client.once('clientReady', async () => {
   console.log(`Discord Voice Hermes ready as ${client.user.tag}`);
-  console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; fastMode=${FAST_MODE}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'none'}; responseBackend=${RESPONSE_BACKEND}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}; endSilenceMs=${END_SILENCE_MS}; textContextMaxMessages=${TEXT_CONTEXT_MAX_MESSAGES}; daveEncryption=${DAVE_ENCRYPTION}; decryptionFailureTolerance=${DECRYPTION_FAILURE_TOLERANCE}`);
+  console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; fastMode=${FAST_MODE}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'none'}; responseBackend=${RESPONSE_BACKEND}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}; endSilenceMs=${END_SILENCE_MS}; textContextMaxMessages=${TEXT_CONTEXT_MAX_MESSAGES}; daveEncryption=${DAVE_ENCRYPTION}; decryptionFailureTolerance=${DECRYPTION_FAILURE_TOLERANCE}; voiceJoinAttempts=${VOICE_JOIN_ATTEMPTS}`);
   await Promise.allSettled(client.guilds.cache.map((guild) => guild.commands.set(buildVoiceCommands())));
   console.log(`Registered slash commands: ${buildVoiceCommands().map((command) => `/${command.name}`).join(', ')}`);
 });

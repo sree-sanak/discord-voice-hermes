@@ -13,9 +13,17 @@ export function isVoiceJoinAbortError(err) {
     || /operation was aborted/i.test(err?.message || '');
 }
 
-export function formatVoiceJoinError(err, channelName) {
+export function shouldRetryVoiceJoin(err, attempt, maxAttempts) {
+  return isVoiceJoinAbortError(err) && attempt < maxAttempts;
+}
+
+export function voiceJoinRetryDelayMs(attempt) {
+  return Math.min(3000, Math.max(1, attempt) * 750);
+}
+
+export function formatVoiceJoinError(err, channelName, attempts = 1) {
   if (isVoiceJoinAbortError(err)) {
-    return `Timed out joining **${channelName}**. I cleared the stale Discord voice connection; please run \`/voice-handoff\` again if I am not already in the channel.`;
+    return `Could not join **${channelName}** after ${attempts} attempt(s). Discord did not finish the voice handshake. I cleared the stale connection; wait a few seconds and try \`/voice-handoff\` again, or join the voice channel first so I can auto-follow you.`;
   }
   return err?.message || String(err);
 }
