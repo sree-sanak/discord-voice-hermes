@@ -4,6 +4,7 @@ import { ChannelType, Client, GatewayIntentBits, Partials } from 'discord.js';
 import {
   AudioPlayerStatus,
   EndBehaviorType,
+  NoSubscriberBehavior,
   VoiceConnectionStatus,
   createAudioPlayer,
   createAudioResource,
@@ -113,7 +114,9 @@ const sessions = new Map();
 
 function getSession(guildId) {
   if (!sessions.has(guildId)) {
-    const player = createAudioPlayer();
+    const player = createAudioPlayer({
+      behaviors: { noSubscriber: NoSubscriberBehavior.Play },
+    });
     const state = {
       guildId,
       connection: null,
@@ -132,6 +135,9 @@ function getSession(guildId) {
       connecting: null,
       connectingChannelId: null,
     };
+    player.on('stateChange', (oldState, newState) => {
+      console.log(`[audio-player] ${oldState.status} -> ${newState.status}`);
+    });
     player.on(AudioPlayerStatus.Playing, () => { state.playing = true; });
     player.on(AudioPlayerStatus.Idle, () => {
       state.playing = false;
@@ -434,12 +440,12 @@ async function askAssistant(state, transcript, username) {
 
 async function synthesize(text) {
   const id = `${Date.now()}-reply`;
-  const outPath = path.join(tmpRoot, `${id}.mp3`);
+  const outPath = path.join(tmpRoot, `${id}.opus`);
   const response = await openai.audio.speech.create({
     model: TTS_MODEL,
     voice: TTS_VOICE,
     input: text.slice(0, 4000),
-    format: 'mp3',
+    format: 'opus',
   });
   const audio = Buffer.from(await response.arrayBuffer());
   fs.writeFileSync(outPath, audio);
@@ -447,9 +453,15 @@ async function synthesize(text) {
 }
 
 async function playFile(state, audioPath) {
-  const resource = createAudioResource(audioPath);
+  if (!state.connection || state.connection.state.status !== VoiceConnectionStatus.Ready) {
+    throw new Error(`Cannot play TTS: voice connection is ${state.connection?.state?.status || 'missing'}`);
+  }
+  const subscription = state.connection.subscribe(state.player);
+  if (!subscription) throw new Error('Cannot play TTS: failed to subscribe audio player to voice connection');
+  const resource = createAudioResource(audioPath, { metadata: { audioPath } });
+  console.log(`[pipeline] playing TTS ${path.basename(audioPath)} (${fs.statSync(audioPath).size} bytes)`);
   state.player.play(resource);
-  state.connection.subscribe(state.player);
+  await entersState(state.player, AudioPlayerStatus.Playing, 5000);
   await entersState(state.player, AudioPlayerStatus.Idle, 120000).catch(() => {});
 }
 
