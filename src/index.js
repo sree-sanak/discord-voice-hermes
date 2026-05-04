@@ -440,12 +440,12 @@ async function askAssistant(state, transcript, username) {
 
 async function synthesize(text) {
   const id = `${Date.now()}-reply`;
-  const outPath = path.join(tmpRoot, `${id}.opus`);
+  const outPath = path.join(tmpRoot, `${id}.mp3`);
   const response = await openai.audio.speech.create({
     model: TTS_MODEL,
     voice: TTS_VOICE,
     input: text.slice(0, 4000),
-    format: 'opus',
+    format: 'mp3',
   });
   const audio = Buffer.from(await response.arrayBuffer());
   fs.writeFileSync(outPath, audio);
