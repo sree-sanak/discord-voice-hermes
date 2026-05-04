@@ -277,16 +277,40 @@ function wavHeader(dataBytes, sampleRate = 48000, channels = 2, bitDepth = 16) {
   return buffer;
 }
 
+function isCorruptOpusPacketError(err) {
+  return /compressed data passed is corrupted/i.test(err?.message || '');
+}
+
+class TolerantOpusDecoder extends prism.opus.Decoder {
+  constructor(options) {
+    super(options);
+    this.skippedPackets = 0;
+  }
+
+  _transform(chunk, encoding, done) {
+    super._transform(chunk, encoding, (err) => {
+      if (isCorruptOpusPacketError(err)) {
+        this.skippedPackets += 1;
+        return done();
+      }
+      return done(err);
+    });
+  }
+}
+
 async function recordUtterance(connection, userId) {
   const opusStream = connection.receiver.subscribe(userId, {
     end: { behavior: EndBehaviorType.AfterSilence, duration: END_SILENCE_MS },
   });
-  const decoder = new prism.opus.Decoder({ rate: 48000, channels: 2, frameSize: 960 });
+  const decoder = new TolerantOpusDecoder({ rate: 48000, channels: 2, frameSize: 960 });
   const chunks = [];
   decoder.on('data', (chunk) => chunks.push(chunk));
   await pipeline(opusStream, decoder).catch((err) => {
     if (err?.code !== 'ERR_STREAM_PREMATURE_CLOSE') throw err;
   });
+  if (decoder.skippedPackets > 0) {
+    console.warn(`[voice capture] skipped ${decoder.skippedPackets} corrupt opus packet(s)`);
+  }
   const pcm = Buffer.concat(chunks);
   const duration = pcmDurationMs(pcm.length);
   if (duration < MIN_AUDIO_MS) return null;
