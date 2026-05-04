@@ -472,7 +472,8 @@ function registerVoiceConnection(state, connection, voiceChannel) {
   });
 }
 
-async function createReadyVoiceConnection(guild, voiceChannel, attempt) {
+async function createReadyVoiceConnection(state, guild, voiceChannel, attempt) {
+  console.log(`[voice join] attempt ${attempt}/${VOICE_JOIN_ATTEMPTS} target=${voiceChannel.name} id=${voiceChannel.id} joinable=${voiceChannel.joinable} speakable=${voiceChannel.speakable} full=${voiceChannel.full}`);
   const connection = joinVoiceChannel({
     channelId: voiceChannel.id,
     guildId: guild.id,
@@ -483,6 +484,7 @@ async function createReadyVoiceConnection(guild, voiceChannel, attempt) {
     decryptionFailureTolerance: DECRYPTION_FAILURE_TOLERANCE,
     debug: false,
   });
+  registerVoiceConnection(state, connection, voiceChannel);
   try {
     await entersState(connection, VoiceConnectionStatus.Ready, 30000);
     return { connection, ready: true };
@@ -530,9 +532,8 @@ async function connectToVoiceChannel(state, guild, voiceChannel) {
     state.receiverAttached = false;
     for (let attempt = 1; attempt <= VOICE_JOIN_ATTEMPTS; attempt += 1) {
       try {
-        const result = await createReadyVoiceConnection(guild, voiceChannel, attempt);
+        const result = await createReadyVoiceConnection(state, guild, voiceChannel, attempt);
         if (!result) continue;
-        registerVoiceConnection(state, result.connection, voiceChannel);
         if (result.ready) attachReceiver(state);
         return result;
       } catch (err) {
@@ -706,20 +707,24 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
   const guild = newState.guild || oldState.guild;
   const state = getSession(guild.id);
   const connection = getVoiceConnection(guild.id) || state.connection;
+  const targetVoiceChannel = newState.channel;
+  const oldVoiceChannel = oldState.channel;
+  console.log(`[voice state] user=${userId} old=${oldVoiceChannel?.name || 'none'} new=${targetVoiceChannel?.name || 'none'} connection=${connection?.state?.status || 'none'} channel=${connection?.joinConfig?.channelId || 'none'}`);
 
   try {
-    if (newState.channel && (!connection || connection.joinConfig?.channelId !== newState.channel.id)) {
-      await connectToVoiceChannel(state, guild, newState.channel);
-      const context = await refreshTextContextForVoice(state, guild, newState.channel, userId).catch((err) => {
+    if (targetVoiceChannel && (!connection || connection.joinConfig?.channelId !== targetVoiceChannel.id)) {
+      const result = await connectToVoiceChannel(state, guild, targetVoiceChannel);
+      const context = await refreshTextContextForVoice(state, guild, targetVoiceChannel, userId).catch((err) => {
         console.warn('[text context fetch]', err.message);
         return null;
       });
       const contextNote = context ? ` Using recent text context from ${context.sourceLabel}.` : '';
-      await state.textChannel?.send(`🔊 Auto-joined **${newState.channel.name}**.${contextNote}`).catch(() => {});
+      const statusNote = result?.ready ? 'Auto-joined' : 'Started joining';
+      await state.textChannel?.send(`🔊 ${statusNote} **${targetVoiceChannel.name}**.${contextNote}`).catch(() => {});
       return;
     }
 
-    if (!newState.channel && connection) {
+    if (!targetVoiceChannel && connection) {
       const connectedChannel = guild.channels.cache.get(connection.joinConfig?.channelId);
       const hasAllowedHuman = connectedChannel?.members?.some((member) => !member.user.bot && isAllowed(member.id));
       if (!hasAllowedHuman) {
