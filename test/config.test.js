@@ -28,6 +28,14 @@ test('voice debug can be explicitly enabled for handshake diagnostics', () => {
   assert.equal(config.voiceDebug, true);
 });
 
+test('OpenAI voice model has a fast direct default and can be overridden', () => {
+  const defaultConfig = resolveVoiceConfig({});
+  const customConfig = resolveVoiceConfig({ VOICE_OPENAI_MODEL: 'gpt-4.1-mini' });
+
+  assert.equal(defaultConfig.openaiModel, 'gpt-4o-mini');
+  assert.equal(customConfig.openaiModel, 'gpt-4.1-mini');
+});
+
 test('explicit env values override fast mode defaults', () => {
   const config = resolveVoiceConfig({
     VOICE_FAST_MODE: '1',

@@ -65,6 +65,7 @@ const HERMES_SESSION_PREFIX = config.hermesSessionPrefix;
 const HERMES_PROVIDER = config.hermesProvider;
 const HERMES_MODEL = config.hermesModel;
 const RESPONSE_BACKEND = config.responseBackend;
+const OPENAI_MODEL = config.openaiModel;
 const HERMES_TOOLSETS = config.hermesToolsets;
 const MAX_HERMES_MS = config.hermesTimeoutMs;
 const CODEX_BIN = config.codexBin;
@@ -373,7 +374,21 @@ async function askCodex(state, transcript, username) {
   return text;
 }
 
+async function askOpenAI(state, transcript, username) {
+  const prompt = buildVoicePrompt(state, transcript, username);
+  const response = await openai.chat.completions.create({
+    model: OPENAI_MODEL,
+    messages: [{ role: 'user', content: prompt }],
+    max_tokens: 120,
+    temperature: 0.6,
+  });
+  const text = response.choices?.[0]?.message?.content?.trim() || '';
+  if (!text) throw new Error('OpenAI returned empty response');
+  return text;
+}
+
 async function askAssistant(state, transcript, username) {
+  if (RESPONSE_BACKEND === 'openai') return askOpenAI(state, transcript, username);
   if (RESPONSE_BACKEND === 'codex') return askCodex(state, transcript, username);
   return askHermes(state, transcript, username);
 }
@@ -752,7 +767,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
 client.once('clientReady', async () => {
   console.log(`Discord Voice Hermes ready as ${client.user.tag}`);
-  console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; fastMode=${FAST_MODE}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'none'}; responseBackend=${RESPONSE_BACKEND}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}; endSilenceMs=${END_SILENCE_MS}; textContextMaxMessages=${TEXT_CONTEXT_MAX_MESSAGES}; daveEncryption=${DAVE_ENCRYPTION}; voiceDebug=${VOICE_DEBUG}; decryptionFailureTolerance=${DECRYPTION_FAILURE_TOLERANCE}; voiceJoinAttempts=${VOICE_JOIN_ATTEMPTS}`);
+  console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; fastMode=${FAST_MODE}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'none'}; responseBackend=${RESPONSE_BACKEND}; openaiModel=${OPENAI_MODEL}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}; endSilenceMs=${END_SILENCE_MS}; textContextMaxMessages=${TEXT_CONTEXT_MAX_MESSAGES}; daveEncryption=${DAVE_ENCRYPTION}; voiceDebug=${VOICE_DEBUG}; decryptionFailureTolerance=${DECRYPTION_FAILURE_TOLERANCE}; voiceJoinAttempts=${VOICE_JOIN_ATTEMPTS}`);
   await Promise.allSettled(client.guilds.cache.map((guild) => guild.commands.set(buildVoiceCommands())));
   console.log(`Registered slash commands: ${buildVoiceCommands().map((command) => `/${command.name}`).join(', ')}`);
 });

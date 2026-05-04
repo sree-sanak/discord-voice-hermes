@@ -82,7 +82,8 @@ Useful optional variables:
 | `VOICE_DEBUG` | `false` | Emit verbose @discordjs/voice handshake logs for diagnosing stuck joins |
 | `VOICE_DECRYPTION_FAILURE_TOLERANCE` | `1000` | Extra tolerance for transient Discord voice decrypt failures |
 | `VOICE_JOIN_ATTEMPTS` | `3` | Retry Discord voice handshakes before surfacing a join failure |
-| `VOICE_RESPONSE_BACKEND` | `hermes` | `hermes` or `codex` |
+| `VOICE_RESPONSE_BACKEND` | `hermes` | `openai` for lowest-latency voice chat, or `hermes`/`codex` for full agent backends |
+| `VOICE_OPENAI_MODEL` | `gpt-4o-mini` | Direct OpenAI response model when `VOICE_RESPONSE_BACKEND=openai` |
 | `VOICE_HERMES_PROVIDER` | `openai-codex` | Hermes provider override |
 | `VOICE_HERMES_MODEL` | `gpt-5.5` | Hermes model override |
 | `VOICE_AUTO_FOLLOW` | `true` | Auto-join allowed users' voice channels |

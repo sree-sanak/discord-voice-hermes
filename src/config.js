@@ -45,6 +45,7 @@ export function resolveVoiceConfig(env = process.env) {
     hermesProvider: env.VOICE_HERMES_PROVIDER || 'openai-codex',
     hermesModel: env.VOICE_HERMES_MODEL || 'gpt-5.5',
     responseBackend: (env.VOICE_RESPONSE_BACKEND || 'hermes').toLowerCase(),
+    openaiModel: env.VOICE_OPENAI_MODEL || 'gpt-4o-mini',
     hermesToolsets: env.VOICE_HERMES_TOOLSETS || '',
     hermesTimeoutMs: numberFromEnv(env, 'VOICE_HERMES_TIMEOUT_MS', defaults.hermesTimeoutMs),
     codexBin: env.VOICE_CODEX_BIN || 'codex',
