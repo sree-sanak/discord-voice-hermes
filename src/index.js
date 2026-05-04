@@ -16,7 +16,7 @@ import OpenAI from 'openai';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { pipeline } from 'node:stream/promises';
 import {
@@ -351,18 +351,57 @@ async function askHermes(state, transcript, username) {
   return text;
 }
 
+async function runCodex(args, options) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(CODEX_BIN, args, {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let stdout = '';
+    let stderr = '';
+    const maxBuffer = options.maxBuffer || 1024 * 1024 * 4;
+    const timer = setTimeout(() => child.kill('SIGTERM'), options.timeout);
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+      if (stdout.length > maxBuffer) child.kill('SIGTERM');
+    });
+    child.stderr.on('data', (chunk) => {
+      stderr += chunk;
+      if (stderr.length > maxBuffer) child.kill('SIGTERM');
+    });
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on('close', (code, signal) => {
+      clearTimeout(timer);
+      if (code === 0) return resolve({ stdout, stderr });
+      const err = new Error(`Command failed: ${CODEX_BIN} ${args.join(' ')}`);
+      err.code = code;
+      err.signal = signal;
+      err.killed = signal === 'SIGTERM';
+      err.stdout = stdout;
+      err.stderr = stderr;
+      reject(err);
+    });
+  });
+}
+
 async function askCodex(state, transcript, username) {
   const prompt = buildVoicePrompt(state, transcript, username);
   const outPath = path.join(tmpRoot, `${Date.now()}-codex-response.txt`);
   const args = [
     'exec',
     '--skip-git-repo-check',
+    '--ephemeral',
+    '--ignore-rules',
     '--sandbox', 'read-only',
     '--model', CODEX_MODEL,
     '--output-last-message', outPath,
     prompt,
   ];
-  const { stderr } = await execFileAsync(CODEX_BIN, args, {
+  const { stderr } = await runCodex(args, {
     timeout: MAX_CODEX_MS,
     maxBuffer: 1024 * 1024 * 4,
     cwd: '/root/.hermes/discord-voice-hermes',
