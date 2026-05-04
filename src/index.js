@@ -126,6 +126,7 @@ function getSession(guildId) {
       busy: false,
       playing: false,
       queued: [],
+      recordingUsers: new Set(),
       lastTranscript: '',
       startedAt: Date.now(),
       receiverAttached: false,
@@ -324,7 +325,7 @@ function buildVoicePrompt(state, transcript, username) {
   const textContext = formatTextContextForPrompt(state.textContext);
   return [
     'You are Hermes speaking in a Discord voice channel. Reply conversationally and briefly, optimized for TTS.',
-    'Avoid markdown tables/code unless explicitly requested. Keep most replies under 5 sentences.',
+    'Avoid markdown tables/code unless explicitly requested. Keep most replies under 2 short sentences.',
     textContext ? `Use this recent Discord text context when relevant:\n${textContext}` : '',
     history ? `Recent voice conversation:\n${history}` : '',
     `Speaker: ${username}`,
@@ -454,7 +455,8 @@ async function synthesize(text) {
 
 async function playFile(state, audioPath) {
   if (!state.connection || state.connection.state.status !== VoiceConnectionStatus.Ready) {
-    throw new Error(`Cannot play TTS: voice connection is ${state.connection?.state?.status || 'missing'}`);
+    console.warn(`[pipeline] skipped TTS playback: voice connection is ${state.connection?.state?.status || 'missing'}`);
+    return false;
   }
   const subscription = state.connection.subscribe(state.player);
   if (!subscription) throw new Error('Cannot play TTS: failed to subscribe audio player to voice connection');
@@ -463,13 +465,47 @@ async function playFile(state, audioPath) {
   state.player.play(resource);
   await entersState(state.player, AudioPlayerStatus.Playing, 5000);
   await entersState(state.player, AudioPlayerStatus.Idle, 120000).catch(() => {});
+  return true;
+}
+
+async function processTranscript(state, transcript, username) {
+  if (state.busy) {
+    state.queued.push({ transcript, username });
+    state.queued = state.queued.slice(-3);
+    console.log(`[pipeline] queued transcript while busy (${state.queued.length} pending)`);
+    return;
+  }
+  state.busy = true;
+  let ttsPath = null;
+  try {
+    console.log('[pipeline] asking Hermes...');
+    const reply = await askAssistant(state, transcript, username);
+    console.log(`[${RESPONSE_BACKEND}] ${reply}`);
+    state.textChannel?.send(`🔊 **Hermes:** ${reply}`).catch((err) => console.warn('[discord send reply]', err.message));
+    state.history.push({ role: username, text: transcript }, { role: 'Hermes', text: reply });
+    state.history = state.history.slice(-12);
+
+    console.log('[pipeline] synthesizing TTS...');
+    ttsPath = await synthesize(reply);
+    await playFile(state, ttsPath);
+  } catch (err) {
+    console.error('[voice pipeline]', err);
+    await state.textChannel?.send(`⚠️ Voice pipeline error: ${err.message}`).catch(() => {});
+  } finally {
+    state.busy = false;
+    for (const p of [ttsPath]) {
+      if (p) fs.rm(p, { force: true }, () => {});
+    }
+    const next = state.queued.shift();
+    if (next) setImmediate(() => processTranscript(state, next.transcript, next.username));
+  }
 }
 
 async function handleSpeech(state, userId) {
-  if (state.busy || state.playing || !state.connection || Date.now() < state.ignoredUntil) return;
-  state.busy = true;
+  if (state.playing || !state.connection || Date.now() < state.ignoredUntil) return;
+  if (state.recordingUsers.has(userId)) return;
+  state.recordingUsers.add(userId);
   let wavPath = null;
-  let ttsPath = null;
   try {
     const user = await client.users.fetch(userId).catch(() => null);
     const username = user?.username || userId;
@@ -492,25 +528,13 @@ async function handleSpeech(state, userId) {
     state.lastTranscript = transcript;
     console.log(`[stt] ${username}: ${transcript}`);
     state.textChannel?.send(`🎙️ **${username}:** ${transcript}`).catch((err) => console.warn('[discord send transcript]', err.message));
-
-    console.log('[pipeline] asking Hermes...');
-    const reply = await askAssistant(state, transcript, username);
-    console.log(`[${RESPONSE_BACKEND}] ${reply}`);
-    state.textChannel?.send(`🔊 **Hermes:** ${reply}`).catch((err) => console.warn('[discord send reply]', err.message));
-    state.history.push({ role: username, text: transcript }, { role: 'Hermes', text: reply });
-    state.history = state.history.slice(-12);
-
-    console.log('[pipeline] synthesizing TTS...');
-    ttsPath = await synthesize(reply);
-    await playFile(state, ttsPath);
+    await processTranscript(state, transcript, username);
   } catch (err) {
-    console.error('[voice pipeline]', err);
-    await state.textChannel?.send(`⚠️ Voice pipeline error: ${err.message}`).catch(() => {});
+    console.error('[voice capture]', err);
+    await state.textChannel?.send(`⚠️ Voice capture error: ${err.message}`).catch(() => {});
   } finally {
-    state.busy = false;
-    for (const p of [wavPath, ttsPath]) {
-      if (p) fs.rm(p, { force: true }, () => {});
-    }
+    state.recordingUsers.delete(userId);
+    if (wavPath) fs.rm(wavPath, { force: true }, () => {});
   }
 }
 

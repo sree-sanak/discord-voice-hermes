@@ -73,7 +73,7 @@ Useful optional variables:
 | `DISCORD_VOICE_ALLOWED_USERS` | empty | Comma-separated Discord user IDs allowed to use voice |
 | `VOICE_COMMAND_PREFIX` | `!voice` | Text command prefix |
 | `VOICE_STT_MODEL` | `gpt-4o-mini-transcribe` | OpenAI transcription model |
-| `VOICE_TTS_MODEL` | `gpt-4o-mini-tts` | OpenAI speech model |
+| `VOICE_TTS_MODEL` | `tts-1` | OpenAI speech model; `tts-1` is much lower latency than `gpt-4o-mini-tts` for live voice chat |
 | `VOICE_TTS_VOICE` | `alloy` | OpenAI TTS voice |
 | `VOICE_FAST_MODE` | `true` in `.env.example`, off unless set | Lower-latency profile: shorter silence cutoff, less injected context, shorter Hermes timeout |
 | `VOICE_MIN_AUDIO_MS` | `300`, or `200` with fast mode | Ignore shorter audio clips as noise |

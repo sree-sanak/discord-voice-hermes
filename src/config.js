@@ -36,7 +36,7 @@ export function resolveVoiceConfig(env = process.env) {
     prefix: env.VOICE_COMMAND_PREFIX || '!voice',
     fastMode,
     sttModel: env.VOICE_STT_MODEL || 'gpt-4o-mini-transcribe',
-    ttsModel: env.VOICE_TTS_MODEL || 'gpt-4o-mini-tts',
+    ttsModel: env.VOICE_TTS_MODEL || 'tts-1',
     ttsVoice: env.VOICE_TTS_VOICE || 'alloy',
     minAudioMs: numberFromEnv(env, 'VOICE_MIN_AUDIO_MS', defaults.minAudioMs),
     endSilenceMs: numberFromEnv(env, 'VOICE_END_SILENCE_MS', defaults.endSilenceMs),
