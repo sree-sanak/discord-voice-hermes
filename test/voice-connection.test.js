@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  shouldDestroyVoiceConnection,
   shouldRetryVoiceJoin,
   shouldReuseVoiceConnection,
   shouldKeepPendingVoiceConnection,
@@ -51,4 +52,16 @@ test('shouldKeepPendingVoiceConnection keeps the final aborted handshake alive f
   assert.equal(shouldKeepPendingVoiceConnection(err, 3, 3), true);
   assert.equal(shouldKeepPendingVoiceConnection(err, 2, 3), false);
   assert.equal(shouldKeepPendingVoiceConnection(new Error('Missing permissions'), 3, 3), false);
+});
+
+
+test('shouldReuseVoiceConnection refuses destroyed connections', () => {
+  const destroyed = {
+    joinConfig: { guildId: 'guild-1', channelId: 'voice-1' },
+    state: { status: 'destroyed' },
+  };
+
+  assert.equal(shouldReuseVoiceConnection(destroyed, 'guild-1', 'voice-1', 'ready'), false);
+  assert.equal(shouldDestroyVoiceConnection(destroyed), false);
+  assert.equal(shouldDestroyVoiceConnection({ state: { status: 'ready' } }), true);
 });

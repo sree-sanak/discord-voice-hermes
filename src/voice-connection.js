@@ -1,6 +1,17 @@
+export function isDestroyedVoiceConnection(connection) {
+  return connection?.state?.status === 'destroyed'
+    || connection?.state?.status === 'Destroyed'
+    || connection?._state?.status === 'destroyed';
+}
+
+export function shouldDestroyVoiceConnection(connection) {
+  return Boolean(connection && !isDestroyedVoiceConnection(connection));
+}
+
 export function shouldReuseVoiceConnection(existing, guildId, channelId, readyStatus) {
   return Boolean(
     existing
+      && !isDestroyedVoiceConnection(existing)
       && existing.joinConfig?.guildId === guildId
       && existing.joinConfig?.channelId === channelId
       && existing.state?.status === readyStatus

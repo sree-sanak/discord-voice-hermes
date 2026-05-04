@@ -28,6 +28,7 @@ import {
 import { resolveVoiceConfig } from './config.js';
 import {
   formatVoiceJoinError,
+  shouldDestroyVoiceConnection,
   shouldKeepPendingVoiceConnection,
   shouldRetryVoiceJoin,
   shouldReuseVoiceConnection,
@@ -125,6 +126,8 @@ function getSession(guildId) {
       ignoredUntil: 0,
       history: [],
       textContext: null,
+      connecting: null,
+      connectingChannelId: null,
     };
     player.on(AudioPlayerStatus.Playing, () => { state.playing = true; });
     player.on(AudioPlayerStatus.Idle, () => {
@@ -445,6 +448,18 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function safeDestroyVoiceConnection(connection, reason = 'cleanup') {
+  if (!shouldDestroyVoiceConnection(connection)) return false;
+  try {
+    connection.destroy();
+    return true;
+  } catch (err) {
+    if (/already been destroyed/i.test(err?.message || '')) return false;
+    console.warn(`[voice connection] destroy failed during ${reason}: ${err?.message || err}`);
+    return false;
+  }
+}
+
 function registerVoiceConnection(state, connection, voiceChannel) {
   state.connection = connection;
   connection.on('stateChange', (oldState, newState) => {
@@ -473,7 +488,7 @@ async function createReadyVoiceConnection(guild, voiceChannel, attempt) {
     return { connection, ready: true };
   } catch (err) {
     if (shouldRetryVoiceJoin(err, attempt, VOICE_JOIN_ATTEMPTS)) {
-      connection.destroy();
+      safeDestroyVoiceConnection(connection, `retry attempt ${attempt}`);
       const delayMs = voiceJoinRetryDelayMs(attempt);
       console.warn(`[voice join] attempt ${attempt}/${VOICE_JOIN_ATTEMPTS} timed out for ${voiceChannel.name}; retrying in ${delayMs}ms`);
       await sleep(delayMs);
@@ -483,32 +498,60 @@ async function createReadyVoiceConnection(guild, voiceChannel, attempt) {
       console.warn(`[voice join] attempt ${attempt}/${VOICE_JOIN_ATTEMPTS} timed out for ${voiceChannel.name}; keeping pending connection alive for late Ready`);
       return { connection, ready: false };
     }
-    connection.destroy();
+    safeDestroyVoiceConnection(connection, 'failed join');
     throw err;
   }
 }
 
 async function connectToVoiceChannel(state, guild, voiceChannel) {
-  const existing = getVoiceConnection(guild.id);
-  if (shouldReuseVoiceConnection(existing, guild.id, voiceChannel.id, VoiceConnectionStatus.Ready)) {
-    state.connection = existing;
-    attachReceiver(state);
-    return;
+  if (state.connecting) {
+    const activeTarget = state.connectingChannelId;
+    console.log(`[voice join] already connecting to ${activeTarget}; waiting before handling ${voiceChannel.id}`);
+    await state.connecting.catch(() => null);
+    const afterWait = getVoiceConnection(guild.id) || state.connection;
+    if (shouldReuseVoiceConnection(afterWait, guild.id, voiceChannel.id, VoiceConnectionStatus.Ready)) {
+      state.connection = afterWait;
+      attachReceiver(state);
+      return { connection: afterWait, ready: true, reused: true };
+    }
   }
-  if (existing) existing.destroy();
 
-  state.receiverAttached = false;
-  for (let attempt = 1; attempt <= VOICE_JOIN_ATTEMPTS; attempt += 1) {
-    try {
-      const result = await createReadyVoiceConnection(guild, voiceChannel, attempt);
-      if (!result) continue;
-      registerVoiceConnection(state, result.connection, voiceChannel);
-      if (result.ready) attachReceiver(state);
-      return result;
-    } catch (err) {
-      state.connection = null;
-      state.receiverAttached = false;
-      throw new Error(formatVoiceJoinError(err, voiceChannel.name, VOICE_JOIN_ATTEMPTS));
+  const run = (async () => {
+    const existing = getVoiceConnection(guild.id) || state.connection;
+    if (shouldReuseVoiceConnection(existing, guild.id, voiceChannel.id, VoiceConnectionStatus.Ready)) {
+      state.connection = existing;
+      attachReceiver(state);
+      return { connection: existing, ready: true, reused: true };
+    }
+    if (existing && existing.joinConfig?.channelId !== voiceChannel.id) {
+      safeDestroyVoiceConnection(existing, 'switch channel');
+    }
+
+    state.receiverAttached = false;
+    for (let attempt = 1; attempt <= VOICE_JOIN_ATTEMPTS; attempt += 1) {
+      try {
+        const result = await createReadyVoiceConnection(guild, voiceChannel, attempt);
+        if (!result) continue;
+        registerVoiceConnection(state, result.connection, voiceChannel);
+        if (result.ready) attachReceiver(state);
+        return result;
+      } catch (err) {
+        state.connection = null;
+        state.receiverAttached = false;
+        throw new Error(formatVoiceJoinError(err, voiceChannel.name, VOICE_JOIN_ATTEMPTS));
+      }
+    }
+    throw new Error(formatVoiceJoinError(Object.assign(new Error('The operation was aborted'), { name: 'AbortError', code: 'ABORT_ERR' }), voiceChannel.name, VOICE_JOIN_ATTEMPTS));
+  })();
+
+  state.connecting = run;
+  state.connectingChannelId = voiceChannel.id;
+  try {
+    return await run;
+  } finally {
+    if (state.connecting === run) {
+      state.connecting = null;
+      state.connectingChannelId = null;
     }
   }
 }
@@ -533,7 +576,7 @@ async function join(message) {
 async function leave(message) {
   const state = getSession(message.guild.id);
   const connection = getVoiceConnection(message.guild.id) || state.connection;
-  if (connection) connection.destroy();
+  safeDestroyVoiceConnection(connection, 'manual leave');
   state.connection = null;
   return message.reply('Left the voice channel.');
 }
@@ -680,7 +723,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
       const connectedChannel = guild.channels.cache.get(connection.joinConfig?.channelId);
       const hasAllowedHuman = connectedChannel?.members?.some((member) => !member.user.bot && isAllowed(member.id));
       if (!hasAllowedHuman) {
-        connection.destroy();
+        safeDestroyVoiceConnection(connection, 'auto leave');
         state.connection = null;
         state.receiverAttached = false;
         await state.textChannel?.send('🔇 Auto-left voice channel.').catch(() => {});
