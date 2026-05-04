@@ -18,6 +18,16 @@ export function shouldReuseVoiceConnection(existing, guildId, channelId, readySt
   );
 }
 
+export function shouldReplaceStaleVoiceConnection(existing, guildId, channelId, readyStatus) {
+  return Boolean(
+    existing
+      && !isDestroyedVoiceConnection(existing)
+      && existing.joinConfig?.guildId === guildId
+      && existing.joinConfig?.channelId === channelId
+      && existing.state?.status !== readyStatus
+  );
+}
+
 export function isVoiceJoinAbortError(err) {
   return err?.name === 'AbortError'
     || err?.code === 'ABORT_ERR'

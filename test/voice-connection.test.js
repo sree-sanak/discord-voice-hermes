@@ -4,6 +4,7 @@ import {
   shouldDestroyVoiceConnection,
   shouldRetryVoiceJoin,
   shouldReuseVoiceConnection,
+  shouldReplaceStaleVoiceConnection,
   shouldKeepPendingVoiceConnection,
   formatVoiceJoinError,
   voiceJoinRetryDelayMs,
@@ -22,6 +23,14 @@ test('shouldReuseVoiceConnection does not reuse stale or wrong-channel connectio
   assert.equal(shouldReuseVoiceConnection(null, 'guild-1', 'voice-1', 'ready'), false);
   assert.equal(shouldReuseVoiceConnection({ joinConfig: { guildId: 'guild-1', channelId: 'voice-2' }, state: { status: 'ready' } }, 'guild-1', 'voice-1', 'ready'), false);
   assert.equal(shouldReuseVoiceConnection({ joinConfig: { guildId: 'guild-1', channelId: 'voice-1' }, state: { status: 'connecting' } }, 'guild-1', 'voice-1', 'ready'), false);
+});
+
+test('shouldReplaceStaleVoiceConnection replaces same-channel non-ready handshakes', () => {
+  assert.equal(shouldReplaceStaleVoiceConnection({ joinConfig: { guildId: 'guild-1', channelId: 'voice-1' }, state: { status: 'connecting' } }, 'guild-1', 'voice-1', 'ready'), true);
+  assert.equal(shouldReplaceStaleVoiceConnection({ joinConfig: { guildId: 'guild-1', channelId: 'voice-1' }, state: { status: 'signalling' } }, 'guild-1', 'voice-1', 'ready'), true);
+  assert.equal(shouldReplaceStaleVoiceConnection({ joinConfig: { guildId: 'guild-1', channelId: 'voice-1' }, state: { status: 'ready' } }, 'guild-1', 'voice-1', 'ready'), false);
+  assert.equal(shouldReplaceStaleVoiceConnection({ joinConfig: { guildId: 'guild-1', channelId: 'voice-2' }, state: { status: 'connecting' } }, 'guild-1', 'voice-1', 'ready'), false);
+  assert.equal(shouldReplaceStaleVoiceConnection({ joinConfig: { guildId: 'guild-1', channelId: 'voice-1' }, state: { status: 'destroyed' } }, 'guild-1', 'voice-1', 'ready'), false);
 });
 
 test('formatVoiceJoinError turns Discord voice AbortError into actionable message', () => {

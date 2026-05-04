@@ -32,6 +32,7 @@ import {
   shouldKeepPendingVoiceConnection,
   shouldRetryVoiceJoin,
   shouldReuseVoiceConnection,
+  shouldReplaceStaleVoiceConnection,
   voiceJoinRetryDelayMs,
 } from './voice-connection.js';
 import {
@@ -525,7 +526,10 @@ async function connectToVoiceChannel(state, guild, voiceChannel) {
       attachReceiver(state);
       return { connection: existing, ready: true, reused: true };
     }
-    if (existing && existing.joinConfig?.channelId !== voiceChannel.id) {
+    if (shouldReplaceStaleVoiceConnection(existing, guild.id, voiceChannel.id, VoiceConnectionStatus.Ready)) {
+      console.warn(`[voice join] replacing stale same-channel connection ${existing.state?.status || 'unknown'} for ${voiceChannel.name}`);
+      safeDestroyVoiceConnection(existing, 'stale same-channel join');
+    } else if (existing && existing.joinConfig?.channelId !== voiceChannel.id) {
       safeDestroyVoiceConnection(existing, 'switch channel');
     }
 
