@@ -135,6 +135,7 @@ function getSession(guildId) {
       textContext: null,
       connecting: null,
       connectingChannelId: null,
+      subscription: null,
     };
     player.on('stateChange', (oldState, newState) => {
       console.log(`[audio-player] ${oldState.status} -> ${newState.status}`);
@@ -476,11 +477,22 @@ async function synthesize(text) {
     model: TTS_MODEL,
     voice: TTS_VOICE,
     input: text.slice(0, 4000),
-    format: 'mp3',
+    response_format: 'mp3',
   });
   const audio = Buffer.from(await response.arrayBuffer());
   fs.writeFileSync(outPath, audio);
   return outPath;
+}
+
+function packetsPlayed(connection) {
+  return connection?.state?.networking?.state?.connectionData?.packetsPlayed ?? null;
+}
+
+function ensurePlayerSubscribed(state) {
+  if (!state.connection || state.connection.state.status !== VoiceConnectionStatus.Ready) return false;
+  if (state.subscription?.connection === state.connection) return true;
+  state.subscription = state.connection.subscribe(state.player);
+  return Boolean(state.subscription);
 }
 
 async function playFile(state, audioPath) {
@@ -488,13 +500,17 @@ async function playFile(state, audioPath) {
     console.warn(`[pipeline] skipped TTS playback: voice connection is ${state.connection?.state?.status || 'missing'}`);
     return false;
   }
-  const subscription = state.connection.subscribe(state.player);
-  if (!subscription) throw new Error('Cannot play TTS: failed to subscribe audio player to voice connection');
-  const resource = createAudioResource(audioPath, { metadata: { audioPath } });
-  console.log(`[pipeline] playing TTS ${path.basename(audioPath)} (${fs.statSync(audioPath).size} bytes)`);
+  if (!ensurePlayerSubscribed(state)) throw new Error('Cannot play TTS: failed to subscribe audio player to voice connection');
+  const resource = createAudioResource(audioPath, { inlineVolume: true, metadata: { audioPath } });
+  resource.volume?.setVolume(1.35);
+  const beforePackets = packetsPlayed(state.connection);
+  console.log(`[pipeline] playing TTS ${path.basename(audioPath)} (${fs.statSync(audioPath).size} bytes); packetsBefore=${beforePackets ?? 'unknown'}`);
   state.player.play(resource);
   await entersState(state.player, AudioPlayerStatus.Playing, 5000);
   await entersState(state.player, AudioPlayerStatus.Idle, 120000).catch(() => {});
+  const afterPackets = packetsPlayed(state.connection);
+  const delta = beforePackets == null || afterPackets == null ? 'unknown' : String(afterPackets - beforePackets);
+  console.log(`[pipeline] TTS playback finished; packetsAfter=${afterPackets ?? 'unknown'} packetsDelta=${delta}`);
   return true;
 }
 
@@ -606,6 +622,7 @@ function registerVoiceConnection(state, connection, voiceChannel) {
   connection.on(VoiceConnectionStatus.Disconnected, () => {
     state.connection = null;
     state.receiverAttached = false;
+    state.subscription = null;
   });
 }
 
@@ -670,6 +687,7 @@ async function connectToVoiceChannel(state, guild, voiceChannel) {
     }
 
     state.receiverAttached = false;
+    state.subscription = null;
     for (let attempt = 1; attempt <= VOICE_JOIN_ATTEMPTS; attempt += 1) {
       try {
         const result = await createReadyVoiceConnection(state, guild, voiceChannel, attempt);
@@ -678,6 +696,7 @@ async function connectToVoiceChannel(state, guild, voiceChannel) {
         return result;
       } catch (err) {
         state.connection = null;
+        state.subscription = null;
         state.receiverAttached = false;
         throw new Error(formatVoiceJoinError(err, voiceChannel.name, VOICE_JOIN_ATTEMPTS));
       }
@@ -719,6 +738,7 @@ async function leave(message) {
   const connection = getVoiceConnection(message.guild.id) || state.connection;
   safeDestroyVoiceConnection(connection, 'manual leave');
   state.connection = null;
+  state.subscription = null;
   return message.reply('Left the voice channel.');
 }
 
@@ -871,6 +891,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
       if (!hasAllowedHuman) {
         safeDestroyVoiceConnection(connection, 'auto leave');
         state.connection = null;
+        state.subscription = null;
         state.receiverAttached = false;
         await state.textChannel?.send('🔇 Auto-left voice channel.').catch(() => {});
       }
