@@ -201,6 +201,11 @@ async function fetchRecentTextContext(guild, voiceChannel, userId) {
 
 async function refreshTextContextForVoice(state, guild, voiceChannel, userId) {
   state.textContext = await fetchRecentTextContext(guild, voiceChannel, userId);
+  if (!state.textChannel && state.textContext?.messages?.length) {
+    const channelId = state.textContext.messages.at(-1)?.channelId;
+    const channel = channelId ? guild.channels.cache.get(channelId) : null;
+    if (canReadTextChannel(channel)) state.textChannel = channel;
+  }
   return state.textContext;
 }
 
@@ -875,11 +880,43 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
   }
 });
 
+async function registerCommands() {
+  await Promise.allSettled(client.guilds.cache.map((guild) => guild.commands.set(buildVoiceCommands())));
+  console.log(`Registered slash commands: ${buildVoiceCommands().map((command) => `/${command.name}`).join(', ')}`);
+}
+
+async function autoFollowExistingVoiceMembers() {
+  if (!AUTO_FOLLOW) return;
+  for (const guild of client.guilds.cache.values()) {
+    const voiceStates = guild.voiceStates.cache.filter((voiceState) => {
+      const member = voiceState.member;
+      return voiceState.channel && member && !member.user?.bot && isAllowed(member.id);
+    });
+    for (const voiceState of voiceStates.values()) {
+      const state = getSession(guild.id);
+      const existing = getVoiceConnection(guild.id) || state.connection;
+      if (existing?.joinConfig?.channelId === voiceState.channel.id) continue;
+      try {
+        const result = await connectToVoiceChannel(state, guild, voiceState.channel);
+        const context = await refreshTextContextForVoice(state, guild, voiceState.channel, voiceState.id).catch((err) => {
+          console.warn('[startup text context fetch]', err.message);
+          return null;
+        });
+        const contextNote = context ? ` Using recent text context from ${context.sourceLabel}.` : '';
+        const statusNote = result?.ready ? 'Auto-rejoined' : 'Started rejoining';
+        await state.textChannel?.send(`🔊 ${statusNote} **${voiceState.channel.name}** after restart.${contextNote}`).catch(() => {});
+      } catch (err) {
+        console.error('[startup auto-follow]', err);
+      }
+    }
+  }
+}
+
 client.once('clientReady', async () => {
   console.log(`Discord Voice Hermes ready as ${client.user.tag}`);
   console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; fastMode=${FAST_MODE}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'none'}; responseBackend=${RESPONSE_BACKEND}; openaiModel=${OPENAI_MODEL}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}; endSilenceMs=${END_SILENCE_MS}; textContextMaxMessages=${TEXT_CONTEXT_MAX_MESSAGES}; daveEncryption=${DAVE_ENCRYPTION}; voiceDebug=${VOICE_DEBUG}; decryptionFailureTolerance=${DECRYPTION_FAILURE_TOLERANCE}; voiceJoinAttempts=${VOICE_JOIN_ATTEMPTS}`);
-  await Promise.allSettled(client.guilds.cache.map((guild) => guild.commands.set(buildVoiceCommands())));
-  console.log(`Registered slash commands: ${buildVoiceCommands().map((command) => `/${command.name}`).join(', ')}`);
+  await registerCommands().catch((err) => console.warn('[slash commands]', err.message));
+  await autoFollowExistingVoiceMembers();
 });
 
 process.on('SIGINT', () => client.destroy().finally(() => process.exit(0)));
