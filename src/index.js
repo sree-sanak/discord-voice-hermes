@@ -72,6 +72,7 @@ const CODEX_HOME = config.codexHome;
 const CODEX_MODEL = config.codexModel;
 const MAX_CODEX_MS = config.codexTimeoutMs;
 const DAVE_ENCRYPTION = config.daveEncryption;
+const VOICE_DEBUG = config.voiceDebug;
 const DECRYPTION_FAILURE_TOLERANCE = config.decryptionFailureTolerance;
 const VOICE_JOIN_ATTEMPTS = config.voiceJoinAttempts;
 const AUTO_FOLLOW = config.autoFollow;
@@ -467,6 +468,8 @@ function registerVoiceConnection(state, connection, voiceChannel) {
     console.log(`[voice connection] ${voiceChannel.name}: ${oldState.status} -> ${newState.status}`);
     if (newState.status === VoiceConnectionStatus.Ready) attachReceiver(state);
   });
+  connection.on('debug', (message) => console.log(`[voice debug] ${voiceChannel.name}: ${message}`));
+  connection.on('error', (err) => console.error(`[voice connection error] ${voiceChannel.name}:`, err));
   connection.on(VoiceConnectionStatus.Disconnected, () => {
     state.connection = null;
     state.receiverAttached = false;
@@ -483,7 +486,7 @@ async function createReadyVoiceConnection(state, guild, voiceChannel, attempt) {
     selfMute: false,
     daveEncryption: DAVE_ENCRYPTION,
     decryptionFailureTolerance: DECRYPTION_FAILURE_TOLERANCE,
-    debug: false,
+    debug: VOICE_DEBUG,
   });
   registerVoiceConnection(state, connection, voiceChannel);
   try {
@@ -606,6 +609,7 @@ async function status(message) {
     `textContext: ${state.textContext?.sourceLabel || 'none'}`,
     `ignoreAfterPlaybackMs: ${IGNORE_AFTER_PLAYBACK_MS}`,
     `daveEncryption: ${DAVE_ENCRYPTION}`,
+    `voiceDebug: ${VOICE_DEBUG}`,
     `decryptionFailureTolerance: ${DECRYPTION_FAILURE_TOLERANCE}`,
     `voiceJoinAttempts: ${VOICE_JOIN_ATTEMPTS}`,
     `responseBackend: ${RESPONSE_BACKEND}`,
@@ -745,7 +749,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
 client.once('clientReady', async () => {
   console.log(`Discord Voice Hermes ready as ${client.user.tag}`);
-  console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; fastMode=${FAST_MODE}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'none'}; responseBackend=${RESPONSE_BACKEND}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}; endSilenceMs=${END_SILENCE_MS}; textContextMaxMessages=${TEXT_CONTEXT_MAX_MESSAGES}; daveEncryption=${DAVE_ENCRYPTION}; decryptionFailureTolerance=${DECRYPTION_FAILURE_TOLERANCE}; voiceJoinAttempts=${VOICE_JOIN_ATTEMPTS}`);
+  console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; fastMode=${FAST_MODE}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'none'}; responseBackend=${RESPONSE_BACKEND}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}; endSilenceMs=${END_SILENCE_MS}; textContextMaxMessages=${TEXT_CONTEXT_MAX_MESSAGES}; daveEncryption=${DAVE_ENCRYPTION}; voiceDebug=${VOICE_DEBUG}; decryptionFailureTolerance=${DECRYPTION_FAILURE_TOLERANCE}; voiceJoinAttempts=${VOICE_JOIN_ATTEMPTS}`);
   await Promise.allSettled(client.guilds.cache.map((guild) => guild.commands.set(buildVoiceCommands())));
   console.log(`Registered slash commands: ${buildVoiceCommands().map((command) => `/${command.name}`).join(', ')}`);
 });

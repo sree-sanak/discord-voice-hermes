@@ -22,6 +22,12 @@ test('DAVE encryption can be explicitly enabled when Discord voice receive suppo
   assert.equal(config.daveEncryption, true);
 });
 
+test('voice debug can be explicitly enabled for handshake diagnostics', () => {
+  const config = resolveVoiceConfig({ VOICE_DEBUG: 'true' });
+
+  assert.equal(config.voiceDebug, true);
+});
+
 test('explicit env values override fast mode defaults', () => {
   const config = resolveVoiceConfig({
     VOICE_FAST_MODE: '1',

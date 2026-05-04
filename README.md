@@ -78,7 +78,8 @@ Useful optional variables:
 | `VOICE_FAST_MODE` | `true` in `.env.example`, off unless set | Lower-latency profile: shorter silence cutoff, less injected context, shorter Hermes timeout |
 | `VOICE_MIN_AUDIO_MS` | `300`, or `200` with fast mode | Ignore shorter audio clips as noise |
 | `VOICE_END_SILENCE_MS` | `450`, or `275` with fast mode | Silence needed before Hermes responds |
-| `VOICE_DAVE_ENCRYPTION` | `false` | Disable Discord DAVE E2EE for receive stability; set `true` only if your Discord voice receive path supports it |
+| `VOICE_DAVE_ENCRYPTION` | `false` | Disable Discord DAVE E2EE for receive stability; set `true` if Discord voice handshake stalls on DAVE-required channels |
+| `VOICE_DEBUG` | `false` | Emit verbose @discordjs/voice handshake logs for diagnosing stuck joins |
 | `VOICE_DECRYPTION_FAILURE_TOLERANCE` | `1000` | Extra tolerance for transient Discord voice decrypt failures |
 | `VOICE_JOIN_ATTEMPTS` | `3` | Retry Discord voice handshakes before surfacing a join failure |
 | `VOICE_RESPONSE_BACKEND` | `hermes` | `hermes` or `codex` |

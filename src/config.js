@@ -52,6 +52,7 @@ export function resolveVoiceConfig(env = process.env) {
     codexModel: env.VOICE_CODEX_MODEL || 'gpt-5.5',
     codexTimeoutMs: numberFromEnv(env, 'VOICE_CODEX_TIMEOUT_MS', 60000),
     daveEncryption: isEnabled(env.VOICE_DAVE_ENCRYPTION, false),
+    voiceDebug: isEnabled(env.VOICE_DEBUG, false),
     decryptionFailureTolerance: numberFromEnv(env, 'VOICE_DECRYPTION_FAILURE_TOLERANCE', 1000),
     voiceJoinAttempts: numberFromEnv(env, 'VOICE_JOIN_ATTEMPTS', 3),
     autoFollow: isEnabled(env.VOICE_AUTO_FOLLOW, true),
