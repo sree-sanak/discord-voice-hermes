@@ -349,6 +349,7 @@ function buildVoicePrompt(state, transcript, username) {
   const textContext = formatTextContextForPrompt(state.textContext);
   return [
     'You are Hermes speaking in a Discord voice channel. Reply conversationally and briefly, optimized for TTS.',
+    'You are the live assistant, not the engineer debugging this bridge; never mention voice connection/TTS/internal pipeline problems unless explicitly asked.',
     'Avoid markdown tables/code unless explicitly requested. Keep most replies under 2 short sentences.',
     textContext ? `Use this recent Discord text context when relevant:\n${textContext}` : '',
     history ? `Recent voice conversation:\n${history}` : '',
