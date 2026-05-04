@@ -5,6 +5,7 @@ import {
   AudioPlayerStatus,
   EndBehaviorType,
   NoSubscriberBehavior,
+  StreamType,
   VoiceConnectionStatus,
   createAudioPlayer,
   createAudioResource,
@@ -501,10 +502,24 @@ async function playFile(state, audioPath) {
     return false;
   }
   if (!ensurePlayerSubscribed(state)) throw new Error('Cannot play TTS: failed to subscribe audio player to voice connection');
-  const resource = createAudioResource(audioPath, { inlineVolume: true, metadata: { audioPath } });
+  const ffmpeg = spawn('ffmpeg', [
+    '-hide_banner', '-loglevel', 'error',
+    '-i', audioPath,
+    '-analyzeduration', '0',
+    '-f', 's16le',
+    '-ar', '48000',
+    '-ac', '2',
+    'pipe:1',
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let ffmpegErr = '';
+  ffmpeg.stderr.on('data', (chunk) => { ffmpegErr += chunk.toString(); });
+  ffmpeg.on('close', (code) => {
+    if (code) console.warn(`[ffmpeg playback] exited ${code}: ${ffmpegErr.trim()}`);
+  });
+  const resource = createAudioResource(ffmpeg.stdout, { inputType: StreamType.Raw, inlineVolume: true, metadata: { audioPath } });
   resource.volume?.setVolume(1.35);
   const beforePackets = packetsPlayed(state.connection);
-  console.log(`[pipeline] playing TTS ${path.basename(audioPath)} (${fs.statSync(audioPath).size} bytes); packetsBefore=${beforePackets ?? 'unknown'}`);
+  console.log(`[pipeline] playing TTS via ffmpeg raw PCM ${path.basename(audioPath)} (${fs.statSync(audioPath).size} bytes); packetsBefore=${beforePackets ?? 'unknown'}`);
   state.player.play(resource);
   await entersState(state.player, AudioPlayerStatus.Playing, 5000);
   await entersState(state.player, AudioPlayerStatus.Idle, 120000).catch(() => {});
