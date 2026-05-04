@@ -423,12 +423,21 @@ async function handleSpeech(state, userId) {
     const user = await client.users.fetch(userId).catch(() => null);
     const username = user?.username || userId;
     const recorded = await recordUtterance(state.connection, userId);
-    if (!recorded) return;
+    if (!recorded) {
+      console.log(`[record] ignored short/empty utterance from ${username}`);
+      return;
+    }
     wavPath = recorded.wavPath;
 
     const transcript = await transcribe(wavPath);
-    if (!transcript || transcript.length < 2) return;
-    if (/^(you|um|uh|hm|hmm|yeah|okay|ok|thanks?)\.?$/i.test(transcript.trim())) return;
+    if (!transcript || transcript.length < 2) {
+      console.log(`[stt] empty transcript for ${username} (${Math.round(recorded.duration)}ms audio)`);
+      return;
+    }
+    if (/^(you|um|uh|hm|hmm|yeah|okay|ok|thanks?)\.?$/i.test(transcript.trim())) {
+      console.log(`[stt] ignored filler transcript from ${username}: ${transcript}`);
+      return;
+    }
     state.lastTranscript = transcript;
     console.log(`[stt] ${username}: ${transcript}`);
     state.textChannel?.send(`🎙️ **${username}:** ${transcript}`).catch((err) => console.warn('[discord send transcript]', err.message));
@@ -460,6 +469,7 @@ function attachReceiver(state) {
   state.connection.receiver.speaking.on('start', (userId) => {
     if (userId === client.user?.id) return;
     if (!isAllowed(userId)) return;
+    console.log(`[receiver] speaking start user=${userId}`);
     handleSpeech(state, userId);
   });
 }
