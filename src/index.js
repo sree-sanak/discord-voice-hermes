@@ -332,7 +332,10 @@ async function askHermes(state, transcript, username) {
   args.push('chat', '-Q');
   if (HERMES_PROVIDER) args.push('--provider', HERMES_PROVIDER);
   if (HERMES_MODEL) args.push('-m', HERMES_MODEL);
-  if (HERMES_TOOLSETS) args.push('-t', HERMES_TOOLSETS);
+  // Voice replies should be fast and conversational. Disable Hermes tools by default
+  // unless explicitly configured, otherwise startup/tool schema loading can exceed
+  // the voice timeout and produce silence after transcription.
+  args.push('-t', HERMES_TOOLSETS || '');
   args.push('-q', prompt);
 
   const { stdout, stderr } = await execFileAsync(HERMES_BIN, args, {
