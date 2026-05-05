@@ -141,6 +141,7 @@ function getSession(guildId) {
       connecting: null,
       connectingChannelId: null,
       subscription: null,
+      pendingAutoLeave: false,
     };
     player.on('stateChange', (oldState, newState) => {
       console.log(`[audio-player] ${oldState.status} -> ${newState.status}`);
@@ -565,9 +566,51 @@ function ensurePlayerSubscribed(state) {
   return Boolean(state.subscription);
 }
 
+function connectedChannelForState(state) {
+  const guild = client.guilds.cache.get(state.guildId);
+  const connection = getVoiceConnection(state.guildId) || state.connection;
+  if (!guild || !connection) return { guild, connection, channel: null };
+  return { guild, connection, channel: guild.channels.cache.get(connection.joinConfig?.channelId) || null };
+}
+
+function hasAllowedHumanInConnectedChannel(state) {
+  const { channel } = connectedChannelForState(state);
+  return Boolean(channel?.members?.some((member) => !member.user.bot && isAllowed(member.id)));
+}
+
+async function leaveIfNoAllowedHuman(state, reason = 'auto leave') {
+  const { connection } = connectedChannelForState(state);
+  if (!connection || hasAllowedHumanInConnectedChannel(state)) return false;
+  safeDestroyVoiceConnection(connection, reason);
+  state.connection = null;
+  state.subscription = null;
+  state.receiverAttached = false;
+  state.pendingAutoLeave = false;
+  await state.textChannel?.send('🔇 Auto-left voice channel.').catch(() => {});
+  return true;
+}
+
+function scheduleAutoLeaveWhenIdle(state, delayMs = 5000) {
+  if (state.pendingAutoLeave) return;
+  state.pendingAutoLeave = true;
+  setTimeout(async () => {
+    if (shouldDeferAutoLeave(state)) {
+      state.pendingAutoLeave = false;
+      scheduleAutoLeaveWhenIdle(state, delayMs);
+      return;
+    }
+    await leaveIfNoAllowedHuman(state, 'deferred auto leave');
+  }, delayMs);
+}
+
 async function playFile(state, audioPath) {
   if (!state.connection || state.connection.state.status !== VoiceConnectionStatus.Ready) {
     console.warn(`[pipeline] skipped TTS playback: voice connection is ${state.connection?.state?.status || 'missing'}`);
+    return false;
+  }
+  if (!hasAllowedHumanInConnectedChannel(state)) {
+    console.warn('[pipeline] skipped TTS playback: no allowed human remains in voice channel');
+    await leaveIfNoAllowedHuman(state, 'skip playback empty channel');
     return false;
   }
   if (!ensurePlayerSubscribed(state)) throw new Error('Cannot play TTS: failed to subscribe audio player to voice connection');
@@ -628,6 +671,7 @@ async function playConnectionGreeting(state, voiceChannel) {
     await state.textChannel?.send(`⚠️ Voice greeting failed: ${err.message}`).catch(() => {});
   } finally {
     state.busy = false;
+    await leaveIfNoAllowedHuman(state, 'handoff greeting idle auto leave');
   }
 }
 
@@ -654,6 +698,7 @@ async function processTranscript(state, transcript, username) {
     await state.textChannel?.send(`⚠️ Voice pipeline error: ${err.message}`).catch(() => {});
   } finally {
     state.busy = false;
+    await leaveIfNoAllowedHuman(state, 'pipeline idle auto leave');
     const next = state.queued.shift();
     if (next) setImmediate(() => processTranscript(state, next.transcript, next.username));
   }
@@ -1013,26 +1058,10 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
       if (!hasAllowedHuman) {
         if (shouldDeferAutoLeave(state)) {
           console.log('[voice auto-follow] deferring auto-leave until playback/pipeline is idle');
-          setTimeout(async () => {
-            const latest = getVoiceConnection(guild.id) || state.connection;
-            if (!latest || shouldDeferAutoLeave(state)) return;
-            const latestChannel = guild.channels.cache.get(latest.joinConfig?.channelId);
-            const latestHasAllowedHuman = latestChannel?.members?.some((member) => !member.user.bot && isAllowed(member.id));
-            if (!latestHasAllowedHuman) {
-              safeDestroyVoiceConnection(latest, 'deferred auto leave');
-              state.connection = null;
-              state.subscription = null;
-              state.receiverAttached = false;
-              await state.textChannel?.send('🔇 Auto-left voice channel.').catch(() => {});
-            }
-          }, 5000);
+          scheduleAutoLeaveWhenIdle(state);
           return;
         }
-        safeDestroyVoiceConnection(connection, 'auto leave');
-        state.connection = null;
-        state.subscription = null;
-        state.receiverAttached = false;
-        await state.textChannel?.send('🔇 Auto-left voice channel.').catch(() => {});
+        await leaveIfNoAllowedHuman(state, 'auto leave');
       }
     }
   } catch (err) {
