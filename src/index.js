@@ -559,6 +559,36 @@ function packetsPlayed(connection) {
   return connection?.state?.networking?.state?.connectionData?.packetsPlayed ?? null;
 }
 
+function daveStatus(connection) {
+  const dave = connection?.state?.networking?.state?.dave;
+  const session = dave?.session;
+  return {
+    enabled: DAVE_ENCRYPTION,
+    protocolVersion: dave?.protocolVersion,
+    ready: !DAVE_ENCRYPTION || dave?.protocolVersion === 0 || Boolean(session?.ready),
+    sessionStatus: session?.status,
+    epoch: session?.epoch == null ? null : String(session.epoch),
+  };
+}
+
+async function waitForDaveReady(connection, timeoutMs = 10000) {
+  if (!DAVE_ENCRYPTION) return true;
+  const started = Date.now();
+  let lastLog = 0;
+  while (Date.now() - started < timeoutMs) {
+    const status = daveStatus(connection);
+    if (status.ready) return true;
+    if (Date.now() - lastLog > 2000) {
+      console.log(`[pipeline] waiting for DAVE before playback protocol=${status.protocolVersion ?? 'unknown'} status=${status.sessionStatus ?? 'unknown'} epoch=${status.epoch ?? 'none'}`);
+      lastLog = Date.now();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  const status = daveStatus(connection);
+  console.warn(`[pipeline] skipped TTS playback: DAVE not ready protocol=${status.protocolVersion ?? 'unknown'} status=${status.sessionStatus ?? 'unknown'} epoch=${status.epoch ?? 'none'}`);
+  return false;
+}
+
 function ensurePlayerSubscribed(state) {
   if (!state.connection || state.connection.state.status !== VoiceConnectionStatus.Ready) return false;
   if (state.subscription?.connection === state.connection) return true;
@@ -611,6 +641,12 @@ async function playFile(state, audioPath) {
   if (!hasAllowedHumanInConnectedChannel(state)) {
     console.warn('[pipeline] skipped TTS playback: no allowed human remains in voice channel');
     await leaveIfNoAllowedHuman(state, 'skip playback empty channel');
+    return false;
+  }
+  if (!await waitForDaveReady(state.connection)) return false;
+  if (!hasAllowedHumanInConnectedChannel(state)) {
+    console.warn('[pipeline] skipped TTS playback: no allowed human remains in voice channel after DAVE wait');
+    await leaveIfNoAllowedHuman(state, 'skip playback empty channel after DAVE wait');
     return false;
   }
   if (!ensurePlayerSubscribed(state)) throw new Error('Cannot play TTS: failed to subscribe audio player to voice connection');
