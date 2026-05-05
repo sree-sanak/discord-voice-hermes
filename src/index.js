@@ -83,6 +83,7 @@ const IGNORE_AFTER_PLAYBACK_MS = config.ignoreAfterPlaybackMs;
 const AUTO_TEXT_CONTEXT = config.autoTextContext;
 const TEXT_CONTEXT_MAX_MESSAGES = config.textContextMaxMessages;
 const TEXT_CONTEXT_FETCH_LIMIT = config.textContextFetchLimit;
+const HANDOFF_CONTEXT_MAX_MESSAGES = config.handoffContextMaxMessages;
 const TEXT_CONTEXT_MAX_AGE_MS = config.textContextMaxAgeMs;
 const DEFAULT_VOICE_CHANNEL = process.env.VOICE_DEFAULT_CHANNEL_NAME || DEFAULT_VOICE_CHANNEL_NAME;
 
@@ -217,16 +218,19 @@ async function refreshTextContextForVoice(state, guild, voiceChannel, userId) {
 async function setExplicitTextContextFromChannel(state, channel) {
   if (!canReadTextChannel(channel)) return null;
   state.explicitTextContextChannelId = channel.id;
-  const messages = await channel.messages.fetch({ limit: TEXT_CONTEXT_FETCH_LIMIT });
+  const fetchLimit = Math.max(TEXT_CONTEXT_FETCH_LIMIT, HANDOFF_CONTEXT_MAX_MESSAGES);
+  const messages = await channel.messages.fetch({ limit: Math.min(fetchLimit, 100) });
   for (const message of messages.values()) rememberDiscordMessage(message);
   const selected = textContextCache.messages
     .filter((message) => message.guildId === channel.guild?.id)
     .filter((message) => message.channelId === channel.id)
     .filter((message) => Date.now() - message.createdTimestamp <= TEXT_CONTEXT_MAX_AGE_MS)
     .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-    .slice(-TEXT_CONTEXT_MAX_MESSAGES);
+    .slice(-HANDOFF_CONTEXT_MAX_MESSAGES);
   state.textContext = selected.length ? {
     sourceLabel: `#${channel.name}`,
+    topic: channel.name,
+    explicit: true,
     messages: selected,
   } : null;
   return state.textContext;
@@ -410,12 +414,15 @@ function buildVoicePrompt(state, transcript, username) {
     .slice(-8)
     .map((turn) => `${turn.role}: ${turn.text}`)
     .join('\n');
-  const textContext = formatTextContextForPrompt(state.textContext);
+  const textContext = formatTextContextForPrompt(state.textContext, {
+    maxMessageChars: state.textContext?.explicit ? 650 : 280,
+  });
   const privateContext = state.privateContext?.content;
   return [
     'You are Hermes speaking in a Discord voice channel. Be a useful founder/advisor, not a generic chatbot.',
     'You are the live assistant, not the engineer debugging this bridge; never mention voice connection/TTS/internal pipeline problems unless explicitly asked.',
     'For startup, YC, application, drafting, or strategy work: give a concrete recommended answer first, then ask at most one sharp follow-up question. Do not ask the user to repeat facts you likely have in context.',
+    state.textContext?.explicit ? `The user explicitly handed off this Discord thread/topic: "${state.textContext.topic || state.textContext.sourceLabel}". Treat that thread as the main working context and preserve continuity with it.` : '',
     'If the user says "you know this" or asks you to fetch/use context, use the supplied private/text context and make a best-effort draft. State uncertainty briefly only if needed.',
     'Avoid markdown tables/code unless explicitly requested. Keep voice replies concise, but allow 3-5 sentences when drafting or advising.',
     privateContext ? `Private context you may use for this conversation (${state.privateContext.source}):\n${privateContext}` : '',
@@ -963,7 +970,9 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         console.warn('[text context fetch]', err.message);
         return null;
       });
-      const contextNote = context ? ` Using recent text context from ${context.sourceLabel}.` : '';
+      const contextNote = context?.explicit
+        ? ` Using locked handoff context from ${context.sourceLabel} (${context.messages.length} messages).`
+        : context ? ` Using recent text context from ${context.sourceLabel}.` : '';
       const statusNote = result?.ready ? 'Auto-joined' : 'Started joining';
       await state.textChannel?.send(`🔊 ${statusNote} **${targetVoiceChannel.name}**.${contextNote}`).catch(() => {});
       return;

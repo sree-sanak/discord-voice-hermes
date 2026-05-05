@@ -61,6 +61,7 @@ export function resolveVoiceConfig(env = process.env) {
     autoTextContext: isEnabled(env.VOICE_AUTO_TEXT_CONTEXT, true),
     textContextMaxMessages: numberFromEnv(env, 'VOICE_TEXT_CONTEXT_MAX_MESSAGES', defaults.textContextMaxMessages),
     textContextFetchLimit: numberFromEnv(env, 'VOICE_TEXT_CONTEXT_FETCH_LIMIT', defaults.textContextFetchLimit),
+    handoffContextMaxMessages: numberFromEnv(env, 'VOICE_HANDOFF_CONTEXT_MAX_MESSAGES', 60),
     textContextMaxAgeMs: numberFromEnv(env, 'VOICE_TEXT_CONTEXT_MAX_AGE_MS', 6 * 60 * 60 * 1000),
   };
 }
