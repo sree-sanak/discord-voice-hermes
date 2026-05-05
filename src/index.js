@@ -605,6 +605,32 @@ async function playFile(state, audioPath) {
   return true;
 }
 
+async function playText(state, text, label = 'pipeline') {
+  let ttsPath = null;
+  try {
+    console.log(`[${label}] synthesizing TTS...`);
+    ttsPath = await synthesize(text);
+    return await playFile(state, ttsPath);
+  } finally {
+    if (ttsPath) fs.rm(ttsPath, { force: true }, () => {});
+  }
+}
+
+async function playConnectionGreeting(state, voiceChannel) {
+  if (state.busy || state.playing) return;
+  state.busy = true;
+  try {
+    const text = `I'm connected to ${voiceChannel.name} and listening.`;
+    console.log(`[handoff] playing connection greeting: ${text}`);
+    await playText(state, text, 'handoff');
+  } catch (err) {
+    console.error('[handoff greeting]', err);
+    await state.textChannel?.send(`⚠️ Voice greeting failed: ${err.message}`).catch(() => {});
+  } finally {
+    state.busy = false;
+  }
+}
+
 async function processTranscript(state, transcript, username) {
   if (state.busy) {
     state.queued.push({ transcript, username });
@@ -613,7 +639,6 @@ async function processTranscript(state, transcript, username) {
     return;
   }
   state.busy = true;
-  let ttsPath = null;
   try {
     await refreshPrivateContextForVoice(state, transcript);
     console.log('[pipeline] asking Hermes...');
@@ -623,17 +648,12 @@ async function processTranscript(state, transcript, username) {
     state.history.push({ role: username, text: transcript }, { role: 'Hermes', text: reply });
     state.history = state.history.slice(-12);
 
-    console.log('[pipeline] synthesizing TTS...');
-    ttsPath = await synthesize(reply);
-    await playFile(state, ttsPath);
+    await playText(state, reply, 'pipeline');
   } catch (err) {
     console.error('[voice pipeline]', err);
     await state.textChannel?.send(`⚠️ Voice pipeline error: ${err.message}`).catch(() => {});
   } finally {
     state.busy = false;
-    for (const p of [ttsPath]) {
-      if (p) fs.rm(p, { force: true }, () => {});
-    }
     const next = state.queued.shift();
     if (next) setImmediate(() => processTranscript(state, next.transcript, next.username));
   }
@@ -886,7 +906,8 @@ async function handoff({ guild, textChannel, member, userId }) {
     return `Voice handoff ready for **${voiceChannel.name}** from #${textChannel.name}.${createdNote}${contextNote} Join **${voiceChannel.name}** and I will auto-follow you there.`;
   }
   await connectToVoiceChannel(state, guild, voiceChannel);
-  return `Joined **${voiceChannel.name}** from #${textChannel.name}.${createdNote}${contextNote}`;
+  setImmediate(() => playConnectionGreeting(state, voiceChannel));
+  return `Joined **${voiceChannel.name}** from #${textChannel.name}.${createdNote}${contextNote} I will say a short confirmation in voice now.`;
 }
 
 async function ensureVoiceDefaults(guild) {
@@ -973,6 +994,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
   try {
     if (targetVoiceChannel && (!connection || connection.joinConfig?.channelId !== targetVoiceChannel.id)) {
       const result = await connectToVoiceChannel(state, guild, targetVoiceChannel);
+      if (result?.ready) setImmediate(() => playConnectionGreeting(state, targetVoiceChannel));
       const context = await refreshTextContextForVoice(state, guild, targetVoiceChannel, userId).catch((err) => {
         console.warn('[text context fetch]', err.message);
         return null;
@@ -1036,6 +1058,7 @@ async function autoFollowExistingVoiceMembers() {
       if (existing?.joinConfig?.channelId === voiceState.channel.id) continue;
       try {
         const result = await connectToVoiceChannel(state, guild, voiceState.channel);
+        if (result?.ready) setImmediate(() => playConnectionGreeting(state, voiceState.channel));
         const context = await refreshTextContextForVoice(state, guild, voiceState.channel, voiceState.id).catch((err) => {
           console.warn('[startup text context fetch]', err.message);
           return null;
