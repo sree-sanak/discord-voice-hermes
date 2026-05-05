@@ -46,6 +46,10 @@ export function voiceJoinRetryDelayMs(attempt) {
   return Math.min(3000, Math.max(1, attempt) * 750);
 }
 
+export function shouldDeferAutoLeave(state) {
+  return Boolean(state?.playing || state?.busy);
+}
+
 export function formatVoiceJoinError(err, channelName, attempts = 1) {
   if (isVoiceJoinAbortError(err)) {
     return `Could not join **${channelName}** after ${attempts} attempt(s). Discord did not finish the voice handshake. I cleared the stale connection; wait a few seconds and try \`/voice-handoff\` again, or join the voice channel first so I can auto-follow you.`;

@@ -6,6 +6,7 @@ import {
   shouldReuseVoiceConnection,
   shouldReplaceStaleVoiceConnection,
   shouldKeepPendingVoiceConnection,
+  shouldDeferAutoLeave,
   formatVoiceJoinError,
   voiceJoinRetryDelayMs,
 } from '../src/voice-connection.js';
@@ -73,4 +74,10 @@ test('shouldReuseVoiceConnection refuses destroyed connections', () => {
   assert.equal(shouldReuseVoiceConnection(destroyed, 'guild-1', 'voice-1', 'ready'), false);
   assert.equal(shouldDestroyVoiceConnection(destroyed), false);
   assert.equal(shouldDestroyVoiceConnection({ state: { status: 'ready' } }), true);
+});
+
+test('shouldDeferAutoLeave keeps connection while busy or playing', () => {
+  assert.equal(shouldDeferAutoLeave({ playing: true, busy: false }), true);
+  assert.equal(shouldDeferAutoLeave({ playing: false, busy: true }), true);
+  assert.equal(shouldDeferAutoLeave({ playing: false, busy: false }), false);
 });

@@ -35,6 +35,7 @@ import {
   shouldRetryVoiceJoin,
   shouldReuseVoiceConnection,
   shouldReplaceStaleVoiceConnection,
+  shouldDeferAutoLeave,
   voiceJoinRetryDelayMs,
 } from './voice-connection.js';
 import {
@@ -678,6 +679,7 @@ async function handleSpeech(state, userId) {
 function attachReceiver(state) {
   if (state.receiverAttached) return;
   state.receiverAttached = true;
+  console.log('[receiver] attached speaking listener');
   state.connection.receiver.speaking.on('start', (userId) => {
     if (userId === client.user?.id) return;
     if (!isAllowed(userId)) return;
@@ -707,6 +709,11 @@ function registerVoiceConnection(state, connection, voiceChannel) {
   connection.on('stateChange', (oldState, newState) => {
     console.log(`[voice connection] ${voiceChannel.name}: ${oldState.status} -> ${newState.status}`);
     if (newState.status === VoiceConnectionStatus.Ready) attachReceiver(state);
+    if (newState.status === VoiceConnectionStatus.Destroyed) {
+      state.receiverAttached = false;
+      state.subscription = null;
+      if (state.connection === connection) state.connection = null;
+    }
   });
   connection.on('debug', (message) => console.log(`[voice debug] ${voiceChannel.name}: ${message}`));
   connection.on('error', (err) => console.error(`[voice connection error] ${voiceChannel.name}:`, err));
@@ -982,6 +989,23 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
       const connectedChannel = guild.channels.cache.get(connection.joinConfig?.channelId);
       const hasAllowedHuman = connectedChannel?.members?.some((member) => !member.user.bot && isAllowed(member.id));
       if (!hasAllowedHuman) {
+        if (shouldDeferAutoLeave(state)) {
+          console.log('[voice auto-follow] deferring auto-leave until playback/pipeline is idle');
+          setTimeout(async () => {
+            const latest = getVoiceConnection(guild.id) || state.connection;
+            if (!latest || shouldDeferAutoLeave(state)) return;
+            const latestChannel = guild.channels.cache.get(latest.joinConfig?.channelId);
+            const latestHasAllowedHuman = latestChannel?.members?.some((member) => !member.user.bot && isAllowed(member.id));
+            if (!latestHasAllowedHuman) {
+              safeDestroyVoiceConnection(latest, 'deferred auto leave');
+              state.connection = null;
+              state.subscription = null;
+              state.receiverAttached = false;
+              await state.textChannel?.send('🔇 Auto-left voice channel.').catch(() => {});
+            }
+          }, 5000);
+          return;
+        }
         safeDestroyVoiceConnection(connection, 'auto leave');
         state.connection = null;
         state.subscription = null;
