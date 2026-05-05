@@ -134,6 +134,8 @@ function getSession(guildId) {
       ignoredUntil: 0,
       history: [],
       textContext: null,
+      explicitTextContextChannelId: null,
+      privateContext: null,
       connecting: null,
       connectingChannelId: null,
       subscription: null,
@@ -202,6 +204,7 @@ async function fetchRecentTextContext(guild, voiceChannel, userId) {
 }
 
 async function refreshTextContextForVoice(state, guild, voiceChannel, userId) {
+  if (state.explicitTextContextChannelId) return state.textContext;
   state.textContext = await fetchRecentTextContext(guild, voiceChannel, userId);
   if (!state.textChannel && state.textContext?.messages?.length) {
     const channelId = state.textContext.messages.at(-1)?.channelId;
@@ -213,6 +216,7 @@ async function refreshTextContextForVoice(state, guild, voiceChannel, userId) {
 
 async function setExplicitTextContextFromChannel(state, channel) {
   if (!canReadTextChannel(channel)) return null;
+  state.explicitTextContextChannelId = channel.id;
   const messages = await channel.messages.fetch({ limit: TEXT_CONTEXT_FETCH_LIMIT });
   for (const message of messages.values()) rememberDiscordMessage(message);
   const selected = textContextCache.messages
@@ -348,16 +352,73 @@ function extractSessionId(stdout) {
   return match?.[1] || null;
 }
 
+const PRIVATE_BRAIN_PROJECT_PATH = '/root/.hermes/private/brain/projects/mintara-eu-casp-mica-insurance.md';
+const PRIVATE_CONTEXT_RE = /\b(yc|y combinator|application|apply|mintara|mica|casp|insurance|article\s*67|prudential|broker|elmore|regulator|nca|quote|premium)\b/i;
+
+function shouldLoadPrivateContext(state, transcript) {
+  const recent = [
+    transcript,
+    state.history.slice(-6).map((turn) => turn.text).join(' '),
+    state.textContext?.messages?.slice(-8).map((message) => message.content).join(' '),
+  ].filter(Boolean).join(' ');
+  return PRIVATE_CONTEXT_RE.test(recent);
+}
+
+function compactPrivateBrainNote(markdown) {
+  const lines = markdown
+    .replace(/^---[\s\S]*?---\s*/m, '')
+    .split(/\r?\n/);
+  const keepSections = new Set([
+    '# Mintara — EU CASP MiCA Insurance Strategy',
+    '## Current thesis',
+    '## Positioning',
+    '## Best buyer profile',
+    '## Current broker/channel state',
+    '## Indicative premium bands captured',
+    '## Active / notable prospect pipeline',
+    '## Core unresolved risks',
+    '## Near-term operating priorities',
+  ]);
+  const kept = [];
+  let include = false;
+  for (const line of lines) {
+    if (line.startsWith('#')) include = keepSections.has(line.trim());
+    if (include) kept.push(line);
+  }
+  return kept.join('\n').replace(/\n{3,}/g, '\n\n').slice(0, 7000);
+}
+
+async function refreshPrivateContextForVoice(state, transcript) {
+  if (!shouldLoadPrivateContext(state, transcript)) return state.privateContext;
+  if (state.privateContext && Date.now() - state.privateContext.fetchedAt < 15 * 60 * 1000) return state.privateContext;
+  try {
+    const markdown = fs.readFileSync(PRIVATE_BRAIN_PROJECT_PATH, 'utf8');
+    state.privateContext = {
+      source: 'private brain: Mintara EU CASP MiCA insurance strategy',
+      fetchedAt: Date.now(),
+      content: compactPrivateBrainNote(markdown),
+    };
+    console.log(`[private-context] loaded ${state.privateContext.content.length} chars from Mintara strategy note`);
+  } catch (err) {
+    console.warn(`[private-context] unavailable: ${err.message}`);
+  }
+  return state.privateContext;
+}
+
 function buildVoicePrompt(state, transcript, username) {
   const history = state.history
     .slice(-8)
     .map((turn) => `${turn.role}: ${turn.text}`)
     .join('\n');
   const textContext = formatTextContextForPrompt(state.textContext);
+  const privateContext = state.privateContext?.content;
   return [
-    'You are Hermes speaking in a Discord voice channel. Reply conversationally and briefly, optimized for TTS.',
+    'You are Hermes speaking in a Discord voice channel. Be a useful founder/advisor, not a generic chatbot.',
     'You are the live assistant, not the engineer debugging this bridge; never mention voice connection/TTS/internal pipeline problems unless explicitly asked.',
-    'Avoid markdown tables/code unless explicitly requested. Keep most replies under 2 short sentences.',
+    'For startup, YC, application, drafting, or strategy work: give a concrete recommended answer first, then ask at most one sharp follow-up question. Do not ask the user to repeat facts you likely have in context.',
+    'If the user says "you know this" or asks you to fetch/use context, use the supplied private/text context and make a best-effort draft. State uncertainty briefly only if needed.',
+    'Avoid markdown tables/code unless explicitly requested. Keep voice replies concise, but allow 3-5 sentences when drafting or advising.',
+    privateContext ? `Private context you may use for this conversation (${state.privateContext.source}):\n${privateContext}` : '',
     textContext ? `Use this recent Discord text context when relevant:\n${textContext}` : '',
     history ? `Recent voice conversation:\n${history}` : '',
     `Speaker: ${username}`,
@@ -502,30 +563,37 @@ async function playFile(state, audioPath) {
     return false;
   }
   if (!ensurePlayerSubscribed(state)) throw new Error('Cannot play TTS: failed to subscribe audio player to voice connection');
-  const ffmpeg = spawn('ffmpeg', [
+
+  // New path: pre-encode TTS to Ogg Opus with ffmpeg and feed Discord Opus frames
+  // directly. This bypasses @discordjs/voice's PCM->Opus encoder path, which was
+  // reporting packets sent but producing silence on the client.
+  const opusPath = `${audioPath}.ogg`;
+  await execFileAsync('ffmpeg', [
+    '-y',
     '-hide_banner', '-loglevel', 'error',
     '-i', audioPath,
-    '-analyzeduration', '0',
-    '-f', 's16le',
+    '-vn',
+    '-af', 'volume=1.8',
     '-ar', '48000',
     '-ac', '2',
-    'pipe:1',
-  ], { stdio: ['ignore', 'pipe', 'pipe'] });
-  let ffmpegErr = '';
-  ffmpeg.stderr.on('data', (chunk) => { ffmpegErr += chunk.toString(); });
-  ffmpeg.on('close', (code) => {
-    if (code) console.warn(`[ffmpeg playback] exited ${code}: ${ffmpegErr.trim()}`);
-  });
-  const resource = createAudioResource(ffmpeg.stdout, { inputType: StreamType.Raw, inlineVolume: true, metadata: { audioPath } });
-  resource.volume?.setVolume(1.35);
+    '-c:a', 'libopus',
+    '-application', 'voip',
+    '-b:a', '96k',
+    '-vbr', 'off',
+    '-f', 'ogg',
+    opusPath,
+  ], { timeout: 30000, maxBuffer: 1024 * 1024 });
+
   const beforePackets = packetsPlayed(state.connection);
-  console.log(`[pipeline] playing TTS via ffmpeg raw PCM ${path.basename(audioPath)} (${fs.statSync(audioPath).size} bytes); packetsBefore=${beforePackets ?? 'unknown'}`);
+  console.log(`[pipeline] playing TTS via pre-encoded Ogg Opus ${path.basename(opusPath)} (${fs.statSync(opusPath).size} bytes); packetsBefore=${beforePackets ?? 'unknown'}`);
+  const resource = createAudioResource(fs.createReadStream(opusPath), { inputType: StreamType.OggOpus, metadata: { audioPath: opusPath } });
   state.player.play(resource);
   await entersState(state.player, AudioPlayerStatus.Playing, 5000);
   await entersState(state.player, AudioPlayerStatus.Idle, 120000).catch(() => {});
   const afterPackets = packetsPlayed(state.connection);
   const delta = beforePackets == null || afterPackets == null ? 'unknown' : String(afterPackets - beforePackets);
   console.log(`[pipeline] TTS playback finished; packetsAfter=${afterPackets ?? 'unknown'} packetsDelta=${delta}`);
+  fs.rm(opusPath, { force: true }, () => {});
   return true;
 }
 
@@ -539,6 +607,7 @@ async function processTranscript(state, transcript, username) {
   state.busy = true;
   let ttsPath = null;
   try {
+    await refreshPrivateContextForVoice(state, transcript);
     console.log('[pipeline] asking Hermes...');
     const reply = await askAssistant(state, transcript, username);
     console.log(`[${RESPONSE_BACKEND}] ${reply}`);
