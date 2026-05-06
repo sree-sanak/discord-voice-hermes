@@ -23,10 +23,12 @@ import { promisify } from 'node:util';
 import { pipeline } from 'node:stream/promises';
 import {
   createContextCache,
-  formatTextContextForPrompt,
   rememberTextMessage,
   selectRelevantTextContext,
 } from './context.js';
+import {
+  buildVoicePrompt,
+} from './voice-prompt.js';
 import { resolveVoiceConfig } from './config.js';
 import {
   formatVoiceJoinError,
@@ -417,41 +419,14 @@ async function refreshPrivateContextForVoice(state, transcript) {
   return state.privateContext;
 }
 
-function buildVoicePrompt(state, transcript, username) {
-  const history = state.history
-    .slice(-8)
-    .map((turn) => `${turn.role}: ${turn.text}`)
-    .join('\n');
-  const textContext = formatTextContextForPrompt(state.textContext, {
-    maxMessageChars: state.textContext?.explicit ? 650 : 280,
-  });
-  const privateContext = state.privateContext?.content;
-  return [
-    'You are Hermes speaking in a Discord voice channel. Be a useful founder/advisor, not a generic chatbot.',
-    'You are the live assistant, not the engineer debugging this bridge; never mention voice connection/TTS/internal pipeline problems unless explicitly asked.',
-    'For startup, YC, application, drafting, or strategy work: give a concrete recommended answer first, then ask at most one sharp follow-up question. Do not ask the user to repeat facts you likely have in context.',
-    state.textContext?.explicit ? `The user explicitly handed off this Discord thread/topic: "${state.textContext.topic || state.textContext.sourceLabel}". Treat that thread as the main working context and preserve continuity with it.` : '',
-    'If the user says "you know this" or asks you to fetch/use context, use the supplied private/text context and make a best-effort draft. State uncertainty briefly only if needed.',
-    'Avoid markdown tables/code unless explicitly requested. Keep voice replies very short: usually 1-2 spoken sentences, max 3 unless the user explicitly asks for detail.',
-    privateContext ? `Private context you may use for this conversation (${state.privateContext.source}):\n${privateContext}` : '',
-    textContext ? `Use this recent Discord text context when relevant:\n${textContext}` : '',
-    history ? `Recent voice conversation:\n${history}` : '',
-    `Speaker: ${username}`,
-    `User said: ${transcript}`,
-  ].filter(Boolean).join('\n');
-}
-
 async function askHermes(state, transcript, username) {
-  const prompt = buildVoicePrompt(state, transcript, username);
+  const prompt = buildVoicePrompt({ state, transcript, username });
   const args = [];
   if (state.hermesSessionId) args.push('--resume', state.hermesSessionId);
   args.push('chat', '-Q');
   if (HERMES_PROVIDER) args.push('--provider', HERMES_PROVIDER);
   if (HERMES_MODEL) args.push('-m', HERMES_MODEL);
-  // Voice replies should be fast and conversational. Disable Hermes tools by default
-  // unless explicitly configured, otherwise startup/tool schema loading can exceed
-  // the voice timeout and produce silence after transcription.
-  args.push('-t', HERMES_TOOLSETS || '');
+  if (HERMES_TOOLSETS) args.push('-t', HERMES_TOOLSETS);
   args.push('-q', prompt);
 
   const { stdout, stderr } = await execFileAsync(HERMES_BIN, args, {
@@ -504,7 +479,7 @@ async function runCodex(args, options) {
 }
 
 async function askCodex(state, transcript, username) {
-  const prompt = buildVoicePrompt(state, transcript, username);
+  const prompt = buildVoicePrompt({ state, transcript, username });
   const outPath = path.join(tmpRoot, `${Date.now()}-codex-response.txt`);
   const args = [
     'exec',
@@ -529,13 +504,14 @@ async function askCodex(state, transcript, username) {
 }
 
 async function askOpenAI(state, transcript, username) {
-  const prompt = buildVoicePrompt(state, transcript, username);
-  const response = await openai.chat.completions.create({
+  const prompt = buildVoicePrompt({ state, transcript, username });
+  const request = {
     model: OPENAI_MODEL,
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: RESPONSE_MAX_TOKENS,
     temperature: 0.6,
-  });
+  };
+  if (RESPONSE_MAX_TOKENS !== undefined) request.max_tokens = RESPONSE_MAX_TOKENS;
+  const response = await openai.chat.completions.create(request);
   const text = response.choices?.[0]?.message?.content?.trim() || '';
   if (!text) throw new Error('OpenAI returned empty response');
   return text;
@@ -1186,7 +1162,7 @@ async function autoFollowExistingVoiceMembers() {
 
 client.once('clientReady', async () => {
   console.log(`Discord Voice Hermes ready as ${client.user.tag}`);
-  console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; fastMode=${FAST_MODE}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'none'}; responseBackend=${RESPONSE_BACKEND}; openaiModel=${OPENAI_MODEL}; responseMaxTokens=${RESPONSE_MAX_TOKENS}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}; endSilenceMs=${END_SILENCE_MS}; textContextMaxMessages=${TEXT_CONTEXT_MAX_MESSAGES}; daveEncryption=${DAVE_ENCRYPTION}; voiceDebug=${VOICE_DEBUG}; bargeIn=${BARGE_IN}; bargeInHoldMs=${BARGE_IN_HOLD_MS}; decryptionFailureTolerance=${DECRYPTION_FAILURE_TOLERANCE}; voiceJoinAttempts=${VOICE_JOIN_ATTEMPTS}`);
+  console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; fastMode=${FAST_MODE}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'default'}; responseBackend=${RESPONSE_BACKEND}; openaiModel=${OPENAI_MODEL}; responseMaxTokens=${RESPONSE_MAX_TOKENS}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}; endSilenceMs=${END_SILENCE_MS}; textContextMaxMessages=${TEXT_CONTEXT_MAX_MESSAGES}; daveEncryption=${DAVE_ENCRYPTION}; voiceDebug=${VOICE_DEBUG}; bargeIn=${BARGE_IN}; bargeInHoldMs=${BARGE_IN_HOLD_MS}; decryptionFailureTolerance=${DECRYPTION_FAILURE_TOLERANCE}; voiceJoinAttempts=${VOICE_JOIN_ATTEMPTS}`);
   await registerCommands().catch((err) => console.warn('[slash commands]', err.message));
   await autoFollowExistingVoiceMembers();
 });

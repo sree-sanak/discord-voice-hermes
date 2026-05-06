@@ -46,9 +46,9 @@ test('OpenAI voice model has a fast direct default and can be overridden', () =>
   assert.equal(customConfig.openaiModel, 'gpt-4.1-mini');
 });
 
-test('voice replies default to a short response budget and can be overridden', () => {
-  assert.equal(resolveVoiceConfig({}).responseMaxTokens, 80);
-  assert.equal(resolveVoiceConfig({ VOICE_RESPONSE_MAX_TOKENS: '45' }).responseMaxTokens, 45);
+test('voice replies are uncapped by default but can be overridden', () => {
+  assert.equal(resolveVoiceConfig({}).responseMaxTokens, undefined);
+  assert.equal(resolveVoiceConfig({ VOICE_RESPONSE_MAX_TOKENS: '450' }).responseMaxTokens, 450);
 });
 
 test('explicit env values override fast mode defaults', () => {
