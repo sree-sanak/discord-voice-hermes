@@ -723,22 +723,6 @@ async function playText(state, text, label = 'pipeline') {
   }
 }
 
-async function playConnectionGreeting(state, voiceChannel) {
-  if (state.busy || state.playing) return;
-  const channelName = voiceChannel?.name || connectedChannelForState(state).channel?.name || 'voice';
-  state.busy = true;
-  try {
-    const text = `I'm connected to ${channelName} and listening.`;
-    console.log(`[handoff] playing connection greeting: ${text}`);
-    await playText(state, text, 'handoff');
-  } catch (err) {
-    console.error('[handoff greeting]', err);
-    await state.textChannel?.send(`⚠️ Voice greeting failed: ${err.message}`).catch(() => {});
-  } finally {
-    state.busy = false;
-    await leaveIfNoAllowedHuman(state, 'handoff greeting idle auto leave');
-  }
-}
 
 async function processTranscript(state, transcript, username) {
   if (state.busy) {
@@ -1016,8 +1000,7 @@ async function handoff({ guild, textChannel, member, userId }) {
     return `Voice handoff ready for **${voiceChannel.name}** from #${textChannel.name}.${createdNote}${contextNote} Join **${voiceChannel.name}** and I will auto-follow you there.`;
   }
   await connectToVoiceChannel(state, guild, voiceChannel);
-  setImmediate(() => playConnectionGreeting(state, voiceChannel));
-  return `Joined **${voiceChannel.name}** from #${textChannel.name}.${createdNote}${contextNote} I will say a short confirmation in voice now.`;
+  return `Joined **${voiceChannel.name}** from #${textChannel.name}.${createdNote}${contextNote}`;
 }
 
 async function ensureVoiceDefaults(guild) {
@@ -1103,8 +1086,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
   try {
     if (targetVoiceChannel && (!connection || connection.joinConfig?.channelId !== targetVoiceChannel.id)) {
-      const result = await connectToVoiceChannel(state, guild, targetVoiceChannel);
-      if (result?.ready) setImmediate(() => playConnectionGreeting(state, targetVoiceChannel));
+      await connectToVoiceChannel(state, guild, targetVoiceChannel);
       const context = await refreshTextContextForVoice(state, guild, targetVoiceChannel, userId).catch((err) => {
         console.warn('[text context fetch]', err.message);
         return null;
@@ -1152,7 +1134,6 @@ async function autoFollowExistingVoiceMembers() {
       if (existing?.joinConfig?.channelId === voiceState.channel.id) continue;
       try {
         const result = await connectToVoiceChannel(state, guild, voiceState.channel);
-        if (result?.ready) setImmediate(() => playConnectionGreeting(state, voiceState.channel));
         const context = await refreshTextContextForVoice(state, guild, voiceState.channel, voiceState.id).catch((err) => {
           console.warn('[startup text context fetch]', err.message);
           return null;
