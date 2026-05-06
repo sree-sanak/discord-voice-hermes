@@ -115,6 +115,37 @@ test('selectRelevantTextContext falls back to the user most recently active text
   assert.equal(selected.messages[0].content, 'Investor update should emphasize velocity.');
 });
 
+test('selectRelevantTextContext can be locked to one thread without leaking sibling thread messages', () => {
+  const cache = createContextCache({ maxMessages: 20 });
+
+  rememberTextMessage(cache, msg({
+    id: 'thread-a-1',
+    channelId: 'thread-a',
+    channelName: 'ask-questions-a',
+    parentId: 'ask-questions',
+    content: 'Only this thread should be visible.',
+    createdTimestamp: 30_000,
+  }));
+  rememberTextMessage(cache, msg({
+    id: 'thread-b-1',
+    channelId: 'thread-b',
+    channelName: 'ask-questions-b',
+    parentId: 'ask-questions',
+    content: 'Sibling thread secret should not leak.',
+    createdTimestamp: 31_000,
+  }));
+
+  const selected = selectRelevantTextContext(cache, {
+    guildId: 'guild-1',
+    channelId: 'thread-a',
+    userId: 'sree',
+    now: 32_000,
+  });
+
+  assert.equal(selected.sourceLabel, '#ask-questions-a');
+  assert.deepEqual(selected.messages.map((m) => m.id), ['thread-a-1']);
+});
+
 test('formatTextContextForPrompt produces compact TTS-safe context block', () => {
   const block = formatTextContextForPrompt({
     sourceLabel: '#startup-ideas',

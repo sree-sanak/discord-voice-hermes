@@ -71,6 +71,7 @@ export function selectRelevantTextContext(cache, criteria = {}) {
   const maxMessages = Number(criteria.maxMessages || DEFAULT_MAX_CONTEXT_MESSAGES);
   const candidates = cache.messages
     .filter((message) => message.guildId === criteria.guildId)
+    .filter((message) => !criteria.channelId || message.channelId === criteria.channelId)
     .filter((message) => now - message.createdTimestamp <= maxAgeMs)
     .sort((a, b) => a.createdTimestamp - b.createdTimestamp);
 
