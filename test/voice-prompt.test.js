@@ -17,7 +17,7 @@ test('loadSoulPersona reads the same SOUL.md used by text Hermes', () => {
   assert.equal(loadSoulPersona({ hermesHome: home }), 'Text Hermes persona rule: be direct and avoid em dashes.');
 });
 
-test('buildVoicePrompt includes SOUL.md and does not add voice-specific brevity caps', () => {
+test('buildVoicePrompt includes SOUL.md for non-Hermes backends and does not add voice-specific brevity caps', () => {
   const prompt = buildVoicePrompt({
     state: { history: [], textContext: null, privateContext: null },
     transcript: 'Help me think through this.',
@@ -26,6 +26,20 @@ test('buildVoicePrompt includes SOUL.md and does not add voice-specific brevity 
   });
 
   assert.match(prompt, /Text Hermes persona rule: be direct and avoid em dashes/);
+  assert.match(prompt, /follow the same persona, style, and operating rules as normal text Hermes/i);
+  assert.doesNotMatch(prompt, /1-2 spoken sentences|max 3|very short/i);
+});
+
+test('buildVoicePrompt avoids duplicating SOUL.md when Hermes CLI already loads it', () => {
+  const prompt = buildVoicePrompt({
+    state: { history: [], textContext: null, privateContext: null },
+    transcript: 'Help me think through this.',
+    username: 'Sree',
+    soulPersona: 'Text Hermes persona rule: be direct and avoid em dashes.',
+    includeSoulPersona: false,
+  });
+
+  assert.doesNotMatch(prompt, /Text Hermes persona rule: be direct and avoid em dashes/);
   assert.match(prompt, /follow the same persona, style, and operating rules as normal text Hermes/i);
   assert.doesNotMatch(prompt, /1-2 spoken sentences|max 3|very short/i);
 });

@@ -55,6 +55,10 @@ export function shouldDeferAutoLeave(state) {
   return Boolean(state?.playing || state?.busy);
 }
 
+export function shouldReleaseRecordingBeforeAssistant(transcript) {
+  return Boolean((transcript || '').trim());
+}
+
 export function shouldBargeInOnSpeech({ enabled = true, playing = false, allowed = false, speaking = false } = {}) {
   return Boolean(enabled && playing && allowed && speaking);
 }

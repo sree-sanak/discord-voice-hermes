@@ -7,6 +7,7 @@ import {
   shouldReplaceStaleVoiceConnection,
   shouldKeepPendingVoiceConnection,
   shouldDeferAutoLeave,
+  shouldReleaseRecordingBeforeAssistant,
   summarizeVoiceOutputDiagnostics,
   shouldBargeInOnSpeech,
   voiceAutoJoinStatusNote,
@@ -90,6 +91,12 @@ test('shouldDeferAutoLeave keeps connection while busy or playing', () => {
   assert.equal(shouldDeferAutoLeave({ playing: true, busy: false }), true);
   assert.equal(shouldDeferAutoLeave({ playing: false, busy: true }), true);
   assert.equal(shouldDeferAutoLeave({ playing: false, busy: false }), false);
+});
+
+test('shouldReleaseRecordingBeforeAssistant releases the user guard once transcript is captured', () => {
+  assert.equal(shouldReleaseRecordingBeforeAssistant('real follow-up'), true);
+  assert.equal(shouldReleaseRecordingBeforeAssistant(''), false);
+  assert.equal(shouldReleaseRecordingBeforeAssistant(' '), false);
 });
 
 test('shouldBargeInOnSpeech interrupts only sustained active playback from allowed users', () => {

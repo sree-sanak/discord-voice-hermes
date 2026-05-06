@@ -39,6 +39,7 @@ import {
   shouldReplaceStaleVoiceConnection,
   shouldDeferAutoLeave,
   shouldBargeInOnSpeech,
+  shouldReleaseRecordingBeforeAssistant,
   summarizeVoiceOutputDiagnostics,
   voiceAutoJoinStatusNote,
   voiceJoinRetryDelayMs,
@@ -421,7 +422,7 @@ async function refreshPrivateContextForVoice(state, transcript) {
 }
 
 async function askHermes(state, transcript, username) {
-  const prompt = buildVoicePrompt({ state, transcript, username });
+  const prompt = buildVoicePrompt({ state, transcript, username, includeSoulPersona: false });
   const args = [];
   if (state.hermesSessionId) args.push('--resume', state.hermesSessionId);
   args.push('chat', '-Q');
@@ -786,7 +787,10 @@ async function handleSpeech(state, userId) {
     state.lastTranscript = transcript;
     console.log(`[stt] ${username}: ${transcript}`);
     state.textChannel?.send(`🎙️ **${username}:** ${transcript}`).catch((err) => console.warn('[discord send transcript]', err.message));
-    await processTranscript(state, transcript, username);
+    if (shouldReleaseRecordingBeforeAssistant(transcript)) {
+      state.recordingUsers.delete(userId);
+    }
+    setImmediate(() => processTranscript(state, transcript, username));
   } catch (err) {
     console.error('[voice capture]', err);
     await state.textChannel?.send(`⚠️ Voice capture error: ${err.message}`).catch(() => {});
