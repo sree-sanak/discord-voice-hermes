@@ -651,36 +651,35 @@ async function playFile(state, audioPath) {
   }
   if (!ensurePlayerSubscribed(state)) throw new Error('Cannot play TTS: failed to subscribe audio player to voice connection');
 
-  // New path: pre-encode TTS to Ogg Opus with ffmpeg and feed Discord Opus frames
-  // directly. This bypasses @discordjs/voice's PCM->Opus encoder path, which was
-  // reporting packets sent but producing silence on the client.
-  const opusPath = `${audioPath}.ogg`;
-  await execFileAsync('ffmpeg', [
-    '-y',
+  // Last known audible path: decode TTS to 48kHz stereo raw PCM and let
+  // @discordjs/voice handle Opus packetization/encryption. The OggOpus path can
+  // report packets sent while Discord desktop clients hear silence.
+  const ffmpeg = spawn('ffmpeg', [
     '-hide_banner', '-loglevel', 'error',
     '-i', audioPath,
-    '-vn',
-    '-af', 'volume=1.8',
+    '-analyzeduration', '0',
+    '-af', 'volume=2.2',
+    '-f', 's16le',
     '-ar', '48000',
     '-ac', '2',
-    '-c:a', 'libopus',
-    '-application', 'voip',
-    '-b:a', '96k',
-    '-vbr', 'off',
-    '-f', 'ogg',
-    opusPath,
-  ], { timeout: 30000, maxBuffer: 1024 * 1024 });
+    'pipe:1',
+  ], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let ffmpegErr = '';
+  ffmpeg.stderr.on('data', (chunk) => { ffmpegErr += chunk.toString(); });
+  ffmpeg.on('close', (code) => {
+    if (code) console.warn(`[ffmpeg playback] exited ${code}: ${ffmpegErr.trim()}`);
+  });
 
   const beforePackets = packetsPlayed(state.connection);
-  console.log(`[pipeline] playing TTS via pre-encoded Ogg Opus ${path.basename(opusPath)} (${fs.statSync(opusPath).size} bytes); packetsBefore=${beforePackets ?? 'unknown'}`);
-  const resource = createAudioResource(fs.createReadStream(opusPath), { inputType: StreamType.OggOpus, metadata: { audioPath: opusPath } });
+  console.log(`[pipeline] playing TTS via ffmpeg raw PCM ${path.basename(audioPath)} (${fs.statSync(audioPath).size} bytes); packetsBefore=${beforePackets ?? 'unknown'}`);
+  const resource = createAudioResource(ffmpeg.stdout, { inputType: StreamType.Raw, inlineVolume: true, metadata: { audioPath } });
+  resource.volume?.setVolume(1.35);
   state.player.play(resource);
   await entersState(state.player, AudioPlayerStatus.Playing, 5000);
   await entersState(state.player, AudioPlayerStatus.Idle, 120000).catch(() => {});
   const afterPackets = packetsPlayed(state.connection);
   const delta = beforePackets == null || afterPackets == null ? 'unknown' : String(afterPackets - beforePackets);
   console.log(`[pipeline] TTS playback finished; packetsAfter=${afterPackets ?? 'unknown'} packetsDelta=${delta}`);
-  fs.rm(opusPath, { force: true }, () => {});
   return true;
 }
 
@@ -697,9 +696,10 @@ async function playText(state, text, label = 'pipeline') {
 
 async function playConnectionGreeting(state, voiceChannel) {
   if (state.busy || state.playing) return;
+  const channelName = voiceChannel?.name || connectedChannelForState(state).channel?.name || 'voice';
   state.busy = true;
   try {
-    const text = `I'm connected to ${voiceChannel.name} and listening.`;
+    const text = `I'm connected to ${channelName} and listening.`;
     console.log(`[handoff] playing connection greeting: ${text}`);
     await playText(state, text, 'handoff');
   } catch (err) {
