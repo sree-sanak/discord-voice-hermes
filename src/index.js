@@ -26,10 +26,9 @@ import {
   rememberTextMessage,
   selectRelevantTextContext,
 } from './context.js';
-import {
-  buildVoicePrompt,
-} from './voice-prompt.js';
+import { buildVoicePrompt } from './voice-prompt.js';
 import { formatLatencySummary } from './voice-latency.js';
+import { formatDiscordVoiceReply, shouldSynthesizeForListener } from './voice-reply.js';
 import { resolveVoiceConfig } from './config.js';
 import {
   formatVoiceJoinError,
@@ -699,10 +698,26 @@ async function playFile(state, audioPath) {
 async function playText(state, text, label = 'pipeline', latency = null) {
   let ttsPath = null;
   try {
+    if (!shouldSynthesizeForListener({
+      connected: state.connection?.state?.status === VoiceConnectionStatus.Ready,
+      hasListener: hasAllowedHumanInConnectedChannel(state),
+    })) {
+      console.warn(`[${label}] skipped TTS synthesis: no allowed listener remains`);
+      await leaveIfNoAllowedHuman(state, 'skip synthesis empty channel');
+      return false;
+    }
     console.log(`[${label}] synthesizing TTS...`);
     const ttsStartedAt = Date.now();
     ttsPath = await synthesize(text);
     if (latency) latency.ttsMs = Date.now() - ttsStartedAt;
+    if (!shouldSynthesizeForListener({
+      connected: state.connection?.state?.status === VoiceConnectionStatus.Ready,
+      hasListener: hasAllowedHumanInConnectedChannel(state),
+    })) {
+      console.warn(`[${label}] skipped TTS playback after synthesis: no allowed listener remains`);
+      await leaveIfNoAllowedHuman(state, 'skip playback empty channel after synthesis');
+      return false;
+    }
     const playbackStartedAt = Date.now();
     const played = await playFile(state, ttsPath);
     if (latency) latency.playbackMs = Date.now() - playbackStartedAt;
@@ -730,7 +745,7 @@ async function processTranscript(state, transcript, username, latency = {}) {
     const reply = await askAssistant(state, transcript, username);
     latency.assistantMs = Date.now() - assistantStartedAt;
     console.log(`[${RESPONSE_BACKEND}] ${reply}`);
-    state.textChannel?.send(`🔊 **Hermes:** ${reply}`).catch((err) => console.warn('[discord send reply]', err.message));
+    state.textChannel?.send(formatDiscordVoiceReply(reply)).catch((err) => console.warn('[discord send reply]', err.message));
     state.history.push({ role: username, text: transcript }, { role: 'Hermes', text: reply });
     state.history = state.history.slice(-12);
 
