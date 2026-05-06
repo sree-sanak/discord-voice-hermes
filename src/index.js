@@ -40,6 +40,7 @@ import {
   shouldDeferAutoLeave,
   shouldBargeInOnSpeech,
   summarizeVoiceOutputDiagnostics,
+  voiceAutoJoinStatusNote,
   voiceJoinRetryDelayMs,
 } from './voice-connection.js';
 import {
@@ -1098,7 +1099,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
 
   try {
     if (targetVoiceChannel && (!connection || connection.joinConfig?.channelId !== targetVoiceChannel.id)) {
-      await connectToVoiceChannel(state, guild, targetVoiceChannel);
+      const result = await connectToVoiceChannel(state, guild, targetVoiceChannel);
       const context = await refreshTextContextForVoice(state, guild, targetVoiceChannel, userId).catch((err) => {
         console.warn('[text context fetch]', err.message);
         return null;
@@ -1106,7 +1107,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
       const contextNote = context?.explicit
         ? ` Using locked handoff context from ${context.sourceLabel} (${context.messages.length} messages).`
         : context ? ` Using recent text context from ${context.sourceLabel}.` : '';
-      const statusNote = result?.ready ? 'Auto-joined' : 'Started joining';
+      const statusNote = voiceAutoJoinStatusNote(result, 'join');
       await state.textChannel?.send(`🔊 ${statusNote} **${targetVoiceChannel.name}**.${contextNote}`).catch(() => {});
       return;
     }
@@ -1151,7 +1152,7 @@ async function autoFollowExistingVoiceMembers() {
           return null;
         });
         const contextNote = context ? ` Using recent text context from ${context.sourceLabel}.` : '';
-        const statusNote = result?.ready ? 'Auto-rejoined' : 'Started rejoining';
+        const statusNote = voiceAutoJoinStatusNote(result, 'rejoin');
         await state.textChannel?.send(`🔊 ${statusNote} **${voiceState.channel.name}** after restart.${contextNote}`).catch(() => {});
       } catch (err) {
         console.error('[startup auto-follow]', err);

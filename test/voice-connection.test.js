@@ -9,6 +9,7 @@ import {
   shouldDeferAutoLeave,
   summarizeVoiceOutputDiagnostics,
   shouldBargeInOnSpeech,
+  voiceAutoJoinStatusNote,
   formatVoiceJoinError,
   voiceJoinRetryDelayMs,
 } from '../src/voice-connection.js';
@@ -56,6 +57,13 @@ test('voiceJoinRetryDelayMs uses short bounded backoff', () => {
   assert.equal(voiceJoinRetryDelayMs(1), 750);
   assert.equal(voiceJoinRetryDelayMs(2), 1500);
   assert.equal(voiceJoinRetryDelayMs(9), 3000);
+});
+
+test('voiceAutoJoinStatusNote does not require a stale greeting result variable', () => {
+  assert.equal(voiceAutoJoinStatusNote({ ready: true }, 'join'), 'Auto-joined');
+  assert.equal(voiceAutoJoinStatusNote({ ready: false }, 'join'), 'Started joining');
+  assert.equal(voiceAutoJoinStatusNote(undefined, 'join'), 'Started joining');
+  assert.equal(voiceAutoJoinStatusNote({ ready: true }, 'rejoin'), 'Auto-rejoined');
 });
 
 test('shouldKeepPendingVoiceConnection keeps the final aborted handshake alive for late Ready', () => {

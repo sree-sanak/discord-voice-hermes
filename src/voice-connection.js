@@ -46,6 +46,11 @@ export function voiceJoinRetryDelayMs(attempt) {
   return Math.min(3000, Math.max(1, attempt) * 750);
 }
 
+export function voiceAutoJoinStatusNote(result, mode = 'join') {
+  if (mode === 'rejoin') return result?.ready ? 'Auto-rejoined' : 'Started rejoining';
+  return result?.ready ? 'Auto-joined' : 'Started joining';
+}
+
 export function shouldDeferAutoLeave(state) {
   return Boolean(state?.playing || state?.busy);
 }
