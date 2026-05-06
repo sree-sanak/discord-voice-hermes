@@ -50,8 +50,8 @@ export function shouldDeferAutoLeave(state) {
   return Boolean(state?.playing || state?.busy);
 }
 
-export function shouldBargeInOnSpeech({ enabled = true, playing = false, allowed = false } = {}) {
-  return Boolean(enabled && playing && allowed);
+export function shouldBargeInOnSpeech({ enabled = true, playing = false, allowed = false, speaking = false } = {}) {
+  return Boolean(enabled && playing && allowed && speaking);
 }
 
 export function summarizeVoiceOutputDiagnostics(diagnostics) {

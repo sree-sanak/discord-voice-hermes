@@ -84,11 +84,12 @@ test('shouldDeferAutoLeave keeps connection while busy or playing', () => {
   assert.equal(shouldDeferAutoLeave({ playing: false, busy: false }), false);
 });
 
-test('shouldBargeInOnSpeech interrupts only active playback from allowed users', () => {
-  assert.equal(shouldBargeInOnSpeech({ enabled: true, playing: true, allowed: true }), true);
-  assert.equal(shouldBargeInOnSpeech({ enabled: false, playing: true, allowed: true }), false);
-  assert.equal(shouldBargeInOnSpeech({ enabled: true, playing: false, allowed: true }), false);
-  assert.equal(shouldBargeInOnSpeech({ enabled: true, playing: true, allowed: false }), false);
+test('shouldBargeInOnSpeech interrupts only sustained active playback from allowed users', () => {
+  assert.equal(shouldBargeInOnSpeech({ enabled: true, playing: true, allowed: true, speaking: true }), true);
+  assert.equal(shouldBargeInOnSpeech({ enabled: true, playing: true, allowed: true, speaking: false }), false);
+  assert.equal(shouldBargeInOnSpeech({ enabled: false, playing: true, allowed: true, speaking: true }), false);
+  assert.equal(shouldBargeInOnSpeech({ enabled: true, playing: false, allowed: true, speaking: true }), false);
+  assert.equal(shouldBargeInOnSpeech({ enabled: true, playing: true, allowed: false, speaking: true }), false);
 });
 
 test('summarizeVoiceOutputDiagnostics identifies output blockers', () => {

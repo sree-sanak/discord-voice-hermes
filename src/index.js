@@ -80,6 +80,7 @@ const MAX_CODEX_MS = config.codexTimeoutMs;
 const DAVE_ENCRYPTION = config.daveEncryption;
 const VOICE_DEBUG = config.voiceDebug;
 const BARGE_IN = config.bargeIn;
+const BARGE_IN_HOLD_MS = config.bargeInHoldMs;
 const DECRYPTION_FAILURE_TOLERANCE = config.decryptionFailureTolerance;
 const VOICE_JOIN_ATTEMPTS = config.voiceJoinAttempts;
 const AUTO_FOLLOW = config.autoFollow;
@@ -133,6 +134,7 @@ function getSession(guildId) {
       playing: false,
       queued: [],
       recordingUsers: new Set(),
+      speakingUsers: new Set(),
       lastTranscript: '',
       startedAt: Date.now(),
       receiverAttached: false,
@@ -755,12 +757,28 @@ async function processTranscript(state, transcript, username) {
   }
 }
 
+function scheduleBargeInStop(state, userId) {
+  const startedAt = Date.now();
+  setTimeout(() => {
+    if (shouldBargeInOnSpeech({
+      enabled: BARGE_IN,
+      playing: state.playing,
+      allowed: isAllowed(userId),
+      speaking: state.speakingUsers.has(userId),
+    })) {
+      console.log(`[barge-in] stopping playback for user=${userId} after ${Date.now() - startedAt}ms sustained speech`);
+      state.player.stop(true);
+      state.playing = false;
+      state.ignoredUntil = 0;
+    } else if (state.playing) {
+      console.log(`[barge-in] ignored transient speech/noise for user=${userId}`);
+    }
+  }, BARGE_IN_HOLD_MS);
+}
+
 async function handleSpeech(state, userId) {
-  if (shouldBargeInOnSpeech({ enabled: BARGE_IN, playing: state.playing, allowed: isAllowed(userId) })) {
-    console.log(`[barge-in] stopping playback for user=${userId}`);
-    state.player.stop(true);
-    state.playing = false;
-    state.ignoredUntil = 0;
+  if (shouldBargeInOnSpeech({ enabled: BARGE_IN, playing: state.playing, allowed: isAllowed(userId), speaking: state.speakingUsers.has(userId) })) {
+    scheduleBargeInStop(state, userId);
   } else if (state.playing || Date.now() < state.ignoredUntil) {
     return;
   }
@@ -807,8 +825,13 @@ function attachReceiver(state) {
   state.connection.receiver.speaking.on('start', (userId) => {
     if (userId === client.user?.id) return;
     if (!isAllowed(userId)) return;
+    state.speakingUsers.add(userId);
     console.log(`[receiver] speaking start user=${userId}`);
     handleSpeech(state, userId);
+  });
+  state.connection.receiver.speaking.on('end', (userId) => {
+    state.speakingUsers.delete(userId);
+    if (isAllowed(userId)) console.log(`[receiver] speaking end user=${userId}`);
   });
 }
 
@@ -835,6 +858,7 @@ function registerVoiceConnection(state, connection, voiceChannel) {
     if (newState.status === VoiceConnectionStatus.Ready) attachReceiver(state);
     if (newState.status === VoiceConnectionStatus.Destroyed) {
       state.receiverAttached = false;
+      state.speakingUsers.clear();
       state.subscription = null;
       if (state.connection === connection) state.connection = null;
     }
@@ -844,6 +868,7 @@ function registerVoiceConnection(state, connection, voiceChannel) {
   connection.on(VoiceConnectionStatus.Disconnected, () => {
     state.connection = null;
     state.receiverAttached = false;
+    state.speakingUsers.clear();
     state.subscription = null;
   });
 }
@@ -1160,7 +1185,7 @@ async function autoFollowExistingVoiceMembers() {
 
 client.once('clientReady', async () => {
   console.log(`Discord Voice Hermes ready as ${client.user.tag}`);
-  console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; fastMode=${FAST_MODE}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'none'}; responseBackend=${RESPONSE_BACKEND}; openaiModel=${OPENAI_MODEL}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}; endSilenceMs=${END_SILENCE_MS}; textContextMaxMessages=${TEXT_CONTEXT_MAX_MESSAGES}; daveEncryption=${DAVE_ENCRYPTION}; voiceDebug=${VOICE_DEBUG}; bargeIn=${BARGE_IN}; decryptionFailureTolerance=${DECRYPTION_FAILURE_TOLERANCE}; voiceJoinAttempts=${VOICE_JOIN_ATTEMPTS}`);
+  console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; fastMode=${FAST_MODE}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'none'}; responseBackend=${RESPONSE_BACKEND}; openaiModel=${OPENAI_MODEL}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}; endSilenceMs=${END_SILENCE_MS}; textContextMaxMessages=${TEXT_CONTEXT_MAX_MESSAGES}; daveEncryption=${DAVE_ENCRYPTION}; voiceDebug=${VOICE_DEBUG}; bargeIn=${BARGE_IN}; bargeInHoldMs=${BARGE_IN_HOLD_MS}; decryptionFailureTolerance=${DECRYPTION_FAILURE_TOLERANCE}; voiceJoinAttempts=${VOICE_JOIN_ATTEMPTS}`);
   await registerCommands().catch((err) => console.warn('[slash commands]', err.message));
   await autoFollowExistingVoiceMembers();
 });

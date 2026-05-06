@@ -55,6 +55,7 @@ export function resolveVoiceConfig(env = process.env) {
     daveEncryption: isEnabled(env.VOICE_DAVE_ENCRYPTION, false),
     voiceDebug: isEnabled(env.VOICE_DEBUG, false),
     bargeIn: isEnabled(env.VOICE_BARGE_IN, true),
+    bargeInHoldMs: numberFromEnv(env, 'VOICE_BARGE_IN_HOLD_MS', 650),
     decryptionFailureTolerance: numberFromEnv(env, 'VOICE_DECRYPTION_FAILURE_TOLERANCE', 1000),
     voiceJoinAttempts: numberFromEnv(env, 'VOICE_JOIN_ATTEMPTS', 3),
     autoFollow: isEnabled(env.VOICE_AUTO_FOLLOW, true),

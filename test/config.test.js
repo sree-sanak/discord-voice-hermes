@@ -33,6 +33,11 @@ test('barge-in is enabled by default and can be disabled', () => {
   assert.equal(resolveVoiceConfig({ VOICE_BARGE_IN: 'false' }).bargeIn, false);
 });
 
+test('barge-in requires a sustained speech hold by default', () => {
+  assert.equal(resolveVoiceConfig({}).bargeInHoldMs, 650);
+  assert.equal(resolveVoiceConfig({ VOICE_BARGE_IN_HOLD_MS: '900' }).bargeInHoldMs, 900);
+});
+
 test('OpenAI voice model has a fast direct default and can be overridden', () => {
   const defaultConfig = resolveVoiceConfig({});
   const customConfig = resolveVoiceConfig({ VOICE_OPENAI_MODEL: 'gpt-4.1-mini' });
