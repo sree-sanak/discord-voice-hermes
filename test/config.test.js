@@ -28,6 +28,11 @@ test('voice debug can be explicitly enabled for handshake diagnostics', () => {
   assert.equal(config.voiceDebug, true);
 });
 
+test('barge-in is enabled by default and can be disabled', () => {
+  assert.equal(resolveVoiceConfig({}).bargeIn, true);
+  assert.equal(resolveVoiceConfig({ VOICE_BARGE_IN: 'false' }).bargeIn, false);
+});
+
 test('OpenAI voice model has a fast direct default and can be overridden', () => {
   const defaultConfig = resolveVoiceConfig({});
   const customConfig = resolveVoiceConfig({ VOICE_OPENAI_MODEL: 'gpt-4.1-mini' });

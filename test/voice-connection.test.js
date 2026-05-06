@@ -8,6 +8,7 @@ import {
   shouldKeepPendingVoiceConnection,
   shouldDeferAutoLeave,
   summarizeVoiceOutputDiagnostics,
+  shouldBargeInOnSpeech,
   formatVoiceJoinError,
   voiceJoinRetryDelayMs,
 } from '../src/voice-connection.js';
@@ -81,6 +82,13 @@ test('shouldDeferAutoLeave keeps connection while busy or playing', () => {
   assert.equal(shouldDeferAutoLeave({ playing: true, busy: false }), true);
   assert.equal(shouldDeferAutoLeave({ playing: false, busy: true }), true);
   assert.equal(shouldDeferAutoLeave({ playing: false, busy: false }), false);
+});
+
+test('shouldBargeInOnSpeech interrupts only active playback from allowed users', () => {
+  assert.equal(shouldBargeInOnSpeech({ enabled: true, playing: true, allowed: true }), true);
+  assert.equal(shouldBargeInOnSpeech({ enabled: false, playing: true, allowed: true }), false);
+  assert.equal(shouldBargeInOnSpeech({ enabled: true, playing: false, allowed: true }), false);
+  assert.equal(shouldBargeInOnSpeech({ enabled: true, playing: true, allowed: false }), false);
 });
 
 test('summarizeVoiceOutputDiagnostics identifies output blockers', () => {
