@@ -28,8 +28,9 @@ test('voice debug can be explicitly enabled for handshake diagnostics', () => {
   assert.equal(config.voiceDebug, true);
 });
 
-test('barge-in is enabled by default and can be disabled', () => {
-  assert.equal(resolveVoiceConfig({}).bargeIn, true);
+test('barge-in is disabled by default and can be enabled explicitly', () => {
+  assert.equal(resolveVoiceConfig({}).bargeIn, false);
+  assert.equal(resolveVoiceConfig({ VOICE_BARGE_IN: 'true' }).bargeIn, true);
   assert.equal(resolveVoiceConfig({ VOICE_BARGE_IN: 'false' }).bargeIn, false);
 });
 
