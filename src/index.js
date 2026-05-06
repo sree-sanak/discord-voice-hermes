@@ -29,6 +29,7 @@ import {
 import {
   buildVoicePrompt,
 } from './voice-prompt.js';
+import { formatLatencySummary } from './voice-latency.js';
 import { resolveVoiceConfig } from './config.js';
 import {
   formatVoiceJoinError,
@@ -695,36 +696,46 @@ async function playFile(state, audioPath) {
   return true;
 }
 
-async function playText(state, text, label = 'pipeline') {
+async function playText(state, text, label = 'pipeline', latency = null) {
   let ttsPath = null;
   try {
     console.log(`[${label}] synthesizing TTS...`);
+    const ttsStartedAt = Date.now();
     ttsPath = await synthesize(text);
-    return await playFile(state, ttsPath);
+    if (latency) latency.ttsMs = Date.now() - ttsStartedAt;
+    const playbackStartedAt = Date.now();
+    const played = await playFile(state, ttsPath);
+    if (latency) latency.playbackMs = Date.now() - playbackStartedAt;
+    return played;
   } finally {
     if (ttsPath) fs.rm(ttsPath, { force: true }, () => {});
   }
 }
 
 
-async function processTranscript(state, transcript, username) {
+async function processTranscript(state, transcript, username, latency = {}) {
   if (state.busy) {
-    state.queued.push({ transcript, username });
+    state.queued.push({ transcript, username, latency });
     state.queued = state.queued.slice(-3);
     console.log(`[pipeline] queued transcript while busy (${state.queued.length} pending)`);
     return;
   }
   state.busy = true;
   try {
+    const contextStartedAt = Date.now();
     await refreshPrivateContextForVoice(state, transcript);
+    latency.contextMs = Date.now() - contextStartedAt;
     console.log('[pipeline] asking Hermes...');
+    const assistantStartedAt = Date.now();
     const reply = await askAssistant(state, transcript, username);
+    latency.assistantMs = Date.now() - assistantStartedAt;
     console.log(`[${RESPONSE_BACKEND}] ${reply}`);
     state.textChannel?.send(`🔊 **Hermes:** ${reply}`).catch((err) => console.warn('[discord send reply]', err.message));
     state.history.push({ role: username, text: transcript }, { role: 'Hermes', text: reply });
     state.history = state.history.slice(-12);
 
-    await playText(state, reply, 'pipeline');
+    await playText(state, reply, 'pipeline', latency);
+    console.log(`[latency] ${formatLatencySummary(latency)}`);
   } catch (err) {
     console.error('[voice pipeline]', err);
     await state.textChannel?.send(`⚠️ Voice pipeline error: ${err.message}`).catch(() => {});
@@ -732,7 +743,7 @@ async function processTranscript(state, transcript, username) {
     state.busy = false;
     await leaveIfNoAllowedHuman(state, 'pipeline idle auto leave');
     const next = state.queued.shift();
-    if (next) setImmediate(() => processTranscript(state, next.transcript, next.username));
+    if (next) setImmediate(() => processTranscript(state, next.transcript, next.username, next.latency));
   }
 }
 
@@ -768,14 +779,18 @@ async function handleSpeech(state, userId) {
   try {
     const user = await client.users.fetch(userId).catch(() => null);
     const username = user?.username || userId;
+    const recordStartedAt = Date.now();
     const recorded = await recordUtterance(state.connection, userId);
+    const recordMs = Date.now() - recordStartedAt;
     if (!recorded) {
       console.log(`[record] ignored short/empty utterance from ${username}`);
       return;
     }
     wavPath = recorded.wavPath;
 
+    const sttStartedAt = Date.now();
     const transcript = await transcribe(wavPath);
+    const sttMs = Date.now() - sttStartedAt;
     if (!transcript || transcript.length < 2) {
       console.log(`[stt] empty transcript for ${username} (${Math.round(recorded.duration)}ms audio)`);
       return;
@@ -790,7 +805,7 @@ async function handleSpeech(state, userId) {
     if (shouldReleaseRecordingBeforeAssistant(transcript)) {
       state.recordingUsers.delete(userId);
     }
-    setImmediate(() => processTranscript(state, transcript, username));
+    setImmediate(() => processTranscript(state, transcript, username, { recordMs, sttMs }));
   } catch (err) {
     console.error('[voice capture]', err);
     await state.textChannel?.send(`⚠️ Voice capture error: ${err.message}`).catch(() => {});
