@@ -17,7 +17,7 @@ export function resolveVoiceConfig(env = process.env) {
   const normal = {
     minAudioMs: 300,
     endSilenceMs: 450,
-    hermesTimeoutMs: 120000,
+    hermesTimeoutMs: 240000,
     textContextMaxMessages: 24,
     textContextFetchLimit: 80,
   };

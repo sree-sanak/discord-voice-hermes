@@ -70,7 +70,7 @@ test('explicit env values override fast mode defaults', () => {
   assert.equal(config.hermesModel, 'custom-fast-model');
 });
 
-test('normal mode preserves existing conservative defaults', () => {
+test('normal mode gives GPT-5.5 enough time for slower voice turns', () => {
   const config = resolveVoiceConfig({});
 
   assert.equal(config.fastMode, false);
@@ -78,5 +78,5 @@ test('normal mode preserves existing conservative defaults', () => {
   assert.equal(config.endSilenceMs, 450);
   assert.equal(config.textContextMaxMessages, 24);
   assert.equal(config.textContextFetchLimit, 80);
-  assert.equal(config.hermesTimeoutMs, 120000);
+  assert.equal(config.hermesTimeoutMs, 240000);
 });
