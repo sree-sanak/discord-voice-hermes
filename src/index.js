@@ -71,6 +71,7 @@ const HERMES_PROVIDER = config.hermesProvider;
 const HERMES_MODEL = config.hermesModel;
 const RESPONSE_BACKEND = config.responseBackend;
 const OPENAI_MODEL = config.openaiModel;
+const RESPONSE_MAX_TOKENS = config.responseMaxTokens;
 const HERMES_TOOLSETS = config.hermesToolsets;
 const MAX_HERMES_MS = config.hermesTimeoutMs;
 const CODEX_BIN = config.codexBin;
@@ -431,7 +432,7 @@ function buildVoicePrompt(state, transcript, username) {
     'For startup, YC, application, drafting, or strategy work: give a concrete recommended answer first, then ask at most one sharp follow-up question. Do not ask the user to repeat facts you likely have in context.',
     state.textContext?.explicit ? `The user explicitly handed off this Discord thread/topic: "${state.textContext.topic || state.textContext.sourceLabel}". Treat that thread as the main working context and preserve continuity with it.` : '',
     'If the user says "you know this" or asks you to fetch/use context, use the supplied private/text context and make a best-effort draft. State uncertainty briefly only if needed.',
-    'Avoid markdown tables/code unless explicitly requested. Keep voice replies concise, but allow 3-5 sentences when drafting or advising.',
+    'Avoid markdown tables/code unless explicitly requested. Keep voice replies very short: usually 1-2 spoken sentences, max 3 unless the user explicitly asks for detail.',
     privateContext ? `Private context you may use for this conversation (${state.privateContext.source}):\n${privateContext}` : '',
     textContext ? `Use this recent Discord text context when relevant:\n${textContext}` : '',
     history ? `Recent voice conversation:\n${history}` : '',
@@ -532,7 +533,7 @@ async function askOpenAI(state, transcript, username) {
   const response = await openai.chat.completions.create({
     model: OPENAI_MODEL,
     messages: [{ role: 'user', content: prompt }],
-    max_tokens: 120,
+    max_tokens: RESPONSE_MAX_TOKENS,
     temperature: 0.6,
   });
   const text = response.choices?.[0]?.message?.content?.trim() || '';
@@ -1185,7 +1186,7 @@ async function autoFollowExistingVoiceMembers() {
 
 client.once('clientReady', async () => {
   console.log(`Discord Voice Hermes ready as ${client.user.tag}`);
-  console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; fastMode=${FAST_MODE}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'none'}; responseBackend=${RESPONSE_BACKEND}; openaiModel=${OPENAI_MODEL}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}; endSilenceMs=${END_SILENCE_MS}; textContextMaxMessages=${TEXT_CONTEXT_MAX_MESSAGES}; daveEncryption=${DAVE_ENCRYPTION}; voiceDebug=${VOICE_DEBUG}; bargeIn=${BARGE_IN}; bargeInHoldMs=${BARGE_IN_HOLD_MS}; decryptionFailureTolerance=${DECRYPTION_FAILURE_TOLERANCE}; voiceJoinAttempts=${VOICE_JOIN_ATTEMPTS}`);
+  console.log(`Prefix: ${PREFIX}; allowed users: ${allowedUsers.size || 'any'}; fastMode=${FAST_MODE}; STT=${STT_MODEL}; TTS=${TTS_MODEL}/${TTS_VOICE}; Hermes=${HERMES_PROVIDER}/${HERMES_MODEL}; toolsets=${HERMES_TOOLSETS || 'none'}; responseBackend=${RESPONSE_BACKEND}; openaiModel=${OPENAI_MODEL}; responseMaxTokens=${RESPONSE_MAX_TOKENS}; codexModel=${CODEX_MODEL}; autoFollow=${AUTO_FOLLOW}; endSilenceMs=${END_SILENCE_MS}; textContextMaxMessages=${TEXT_CONTEXT_MAX_MESSAGES}; daveEncryption=${DAVE_ENCRYPTION}; voiceDebug=${VOICE_DEBUG}; bargeIn=${BARGE_IN}; bargeInHoldMs=${BARGE_IN_HOLD_MS}; decryptionFailureTolerance=${DECRYPTION_FAILURE_TOLERANCE}; voiceJoinAttempts=${VOICE_JOIN_ATTEMPTS}`);
   await registerCommands().catch((err) => console.warn('[slash commands]', err.message));
   await autoFollowExistingVoiceMembers();
 });
