@@ -7,6 +7,7 @@ import {
   shouldReplaceStaleVoiceConnection,
   shouldKeepPendingVoiceConnection,
   shouldDeferAutoLeave,
+  summarizeVoiceOutputDiagnostics,
   formatVoiceJoinError,
   voiceJoinRetryDelayMs,
 } from '../src/voice-connection.js';
@@ -80,4 +81,30 @@ test('shouldDeferAutoLeave keeps connection while busy or playing', () => {
   assert.equal(shouldDeferAutoLeave({ playing: true, busy: false }), true);
   assert.equal(shouldDeferAutoLeave({ playing: false, busy: true }), true);
   assert.equal(shouldDeferAutoLeave({ playing: false, busy: false }), false);
+});
+
+test('summarizeVoiceOutputDiagnostics identifies output blockers', () => {
+  assert.deepEqual(summarizeVoiceOutputDiagnostics({
+    selfMute: false,
+    serverMute: true,
+    suppress: false,
+    speakPermission: true,
+    subscribed: true,
+  }), ['server-muted']);
+
+  assert.deepEqual(summarizeVoiceOutputDiagnostics({
+    selfMute: true,
+    serverMute: false,
+    suppress: true,
+    speakPermission: false,
+    subscribed: false,
+  }), ['self-muted', 'suppressed', 'missing-speak-permission', 'player-not-subscribed']);
+
+  assert.deepEqual(summarizeVoiceOutputDiagnostics({
+    selfMute: false,
+    serverMute: false,
+    suppress: false,
+    speakPermission: true,
+    subscribed: true,
+  }), []);
 });

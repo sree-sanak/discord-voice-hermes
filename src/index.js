@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { config as dotenvConfig } from 'dotenv';
-import { ChannelType, Client, GatewayIntentBits, Partials } from 'discord.js';
+import { ChannelType, Client, GatewayIntentBits, Partials, PermissionsBitField } from 'discord.js';
 import {
   AudioPlayerStatus,
   EndBehaviorType,
@@ -36,6 +36,7 @@ import {
   shouldReuseVoiceConnection,
   shouldReplaceStaleVoiceConnection,
   shouldDeferAutoLeave,
+  summarizeVoiceOutputDiagnostics,
   voiceJoinRetryDelayMs,
 } from './voice-connection.js';
 import {
@@ -596,6 +597,30 @@ function ensurePlayerSubscribed(state) {
   return Boolean(state.subscription);
 }
 
+function voiceOutputDiagnostics(state) {
+  const { guild, channel } = connectedChannelForState(state);
+  const botMember = guild?.members?.me;
+  const permissions = botMember && channel?.permissionsFor?.(botMember);
+  const diagnostics = {
+    channelId: channel?.id || null,
+    channelName: channel?.name || null,
+    botVoiceChannelId: botMember?.voice?.channelId || null,
+    selfMute: Boolean(botMember?.voice?.selfMute),
+    serverMute: Boolean(botMember?.voice?.serverMute),
+    suppress: Boolean(botMember?.voice?.suppress),
+    speakPermission: permissions ? permissions.has(PermissionsBitField.Flags.Speak) : null,
+    subscribed: Boolean(state.subscription?.connection === state.connection),
+  };
+  diagnostics.blockers = summarizeVoiceOutputDiagnostics(diagnostics);
+  return diagnostics;
+}
+
+function logVoiceOutputDiagnostics(state, label = 'pipeline') {
+  const d = voiceOutputDiagnostics(state);
+  console.log(`[${label}] voice output diagnostics channel=${d.channelName || d.channelId || 'unknown'} botVoiceChannel=${d.botVoiceChannelId || 'none'} selfMute=${d.selfMute} serverMute=${d.serverMute} suppress=${d.suppress} speakPermission=${d.speakPermission ?? 'unknown'} subscribed=${d.subscribed} blockers=${d.blockers.length ? d.blockers.join(',') : 'none'}`);
+  return d;
+}
+
 function connectedChannelForState(state) {
   const guild = client.guilds.cache.get(state.guildId);
   const connection = getVoiceConnection(state.guildId) || state.connection;
@@ -650,6 +675,10 @@ async function playFile(state, audioPath) {
     return false;
   }
   if (!ensurePlayerSubscribed(state)) throw new Error('Cannot play TTS: failed to subscribe audio player to voice connection');
+  const diagnostics = logVoiceOutputDiagnostics(state);
+  if (diagnostics.blockers.length) {
+    console.warn(`[pipeline] voice output blockers before playback: ${diagnostics.blockers.join(',')}`);
+  }
 
   // Last known audible path: decode TTS to 48kHz stereo raw PCM and let
   // @discordjs/voice handle Opus packetization/encryption. The OggOpus path can

@@ -50,6 +50,16 @@ export function shouldDeferAutoLeave(state) {
   return Boolean(state?.playing || state?.busy);
 }
 
+export function summarizeVoiceOutputDiagnostics(diagnostics) {
+  const blockers = [];
+  if (diagnostics?.selfMute) blockers.push('self-muted');
+  if (diagnostics?.serverMute) blockers.push('server-muted');
+  if (diagnostics?.suppress) blockers.push('suppressed');
+  if (diagnostics?.speakPermission === false) blockers.push('missing-speak-permission');
+  if (diagnostics?.subscribed === false) blockers.push('player-not-subscribed');
+  return blockers;
+}
+
 export function formatVoiceJoinError(err, channelName, attempts = 1) {
   if (isVoiceJoinAbortError(err)) {
     return `Could not join **${channelName}** after ${attempts} attempt(s). Discord did not finish the voice handshake. I cleared the stale connection; wait a few seconds and try \`/voice-handoff\` again, or join the voice channel first so I can auto-follow you.`;
