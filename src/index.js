@@ -1152,11 +1152,6 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
       const connectedChannel = guild.channels.cache.get(connection.joinConfig?.channelId);
       const hasAllowedHuman = connectedChannel?.members?.some((member) => !member.user.bot && isAllowed(member.id));
       if (!hasAllowedHuman) {
-        if (shouldDeferAutoLeave(state)) {
-          console.log('[voice auto-follow] deferring auto-leave until playback/pipeline is idle');
-          scheduleAutoLeaveWhenIdle(state);
-          return;
-        }
         await leaveIfNoAllowedHuman(state, 'auto leave');
       }
     }
