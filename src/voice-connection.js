@@ -63,6 +63,10 @@ export function shouldBargeInOnSpeech({ enabled = true, playing = false, allowed
   return Boolean(enabled && playing && allowed && speaking);
 }
 
+export function shouldIgnoreSpeechCapture({ ignoredUntil = 0, now = Date.now() } = {}) {
+  return now < ignoredUntil;
+}
+
 export function summarizeVoiceOutputDiagnostics(diagnostics) {
   const blockers = [];
   if (diagnostics?.selfMute) blockers.push('self-muted');

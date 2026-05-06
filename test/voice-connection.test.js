@@ -10,6 +10,7 @@ import {
   shouldReleaseRecordingBeforeAssistant,
   summarizeVoiceOutputDiagnostics,
   shouldBargeInOnSpeech,
+  shouldIgnoreSpeechCapture,
   voiceAutoJoinStatusNote,
   formatVoiceJoinError,
   voiceJoinRetryDelayMs,
@@ -105,6 +106,12 @@ test('shouldBargeInOnSpeech interrupts only sustained active playback from allow
   assert.equal(shouldBargeInOnSpeech({ enabled: false, playing: true, allowed: true, speaking: true }), false);
   assert.equal(shouldBargeInOnSpeech({ enabled: true, playing: false, allowed: true, speaking: true }), false);
   assert.equal(shouldBargeInOnSpeech({ enabled: true, playing: true, allowed: false, speaking: true }), false);
+});
+
+test('shouldIgnoreSpeechCapture only ignores the explicit post-playback grace window', () => {
+  assert.equal(shouldIgnoreSpeechCapture({ ignoredUntil: 2000, now: 1000 }), true);
+  assert.equal(shouldIgnoreSpeechCapture({ ignoredUntil: 2000, now: 2000 }), false);
+  assert.equal(shouldIgnoreSpeechCapture({ ignoredUntil: 0, now: 1000 }), false);
 });
 
 test('summarizeVoiceOutputDiagnostics identifies output blockers', () => {

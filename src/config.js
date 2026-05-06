@@ -60,7 +60,7 @@ export function resolveVoiceConfig(env = process.env) {
     decryptionFailureTolerance: numberFromEnv(env, 'VOICE_DECRYPTION_FAILURE_TOLERANCE', 1000),
     voiceJoinAttempts: numberFromEnv(env, 'VOICE_JOIN_ATTEMPTS', 3),
     autoFollow: isEnabled(env.VOICE_AUTO_FOLLOW, true),
-    ignoreAfterPlaybackMs: numberFromEnv(env, 'VOICE_IGNORE_AFTER_PLAYBACK_MS', 1200),
+    ignoreAfterPlaybackMs: numberFromEnv(env, 'VOICE_IGNORE_AFTER_PLAYBACK_MS', 0),
     autoTextContext: isEnabled(env.VOICE_AUTO_TEXT_CONTEXT, true),
     textContextMaxMessages: numberFromEnv(env, 'VOICE_TEXT_CONTEXT_MAX_MESSAGES', defaults.textContextMaxMessages),
     textContextFetchLimit: numberFromEnv(env, 'VOICE_TEXT_CONTEXT_FETCH_LIMIT', defaults.textContextFetchLimit),

@@ -39,6 +39,7 @@ import {
   shouldReplaceStaleVoiceConnection,
   shouldDeferAutoLeave,
   shouldBargeInOnSpeech,
+  shouldIgnoreSpeechCapture,
   shouldReleaseRecordingBeforeAssistant,
   summarizeVoiceOutputDiagnostics,
   voiceAutoJoinStatusNote,
@@ -784,7 +785,8 @@ function scheduleBargeInStop(state, userId) {
 async function handleSpeech(state, userId) {
   if (shouldBargeInOnSpeech({ enabled: BARGE_IN, playing: state.playing, allowed: isAllowed(userId), speaking: state.speakingUsers.has(userId) })) {
     scheduleBargeInStop(state, userId);
-  } else if (state.playing || Date.now() < state.ignoredUntil) {
+  }
+  if (shouldIgnoreSpeechCapture({ ignoredUntil: state.ignoredUntil })) {
     return;
   }
   if (!state.connection) return;
